@@ -7,18 +7,18 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status, Body
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
 from loguru import logger
 
 from database import get_db
-from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse
+from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse, WasteManagementResponse, SimulationResponse
 from utils import (
     parse_containers_csv, parse_items_csv, 
     import_containers_to_db, import_items_to_db,
-    clear_placements
+    clear_placements, log_action
 )
 from services.placement import PlacementService
 from init_db import init_db
@@ -223,7 +223,13 @@ async def get_containers(db: Session = Depends(get_db)):
                         "x": item.position_x,
                         "y": item.position_y,
                         "z": item.position_z
-                    } if item.is_placed else None
+                    } if item.is_placed else None,
+                    "priority": item.priority,
+                    "preferred_zone": item.preferred_zone,
+                    "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
+                    "usage_limit": item.usage_limit,
+                    "usage_count": item.usage_count,
+                    "is_waste": item.is_waste
                 })
             
             response.append({
@@ -232,6 +238,8 @@ async def get_containers(db: Session = Depends(get_db)):
                 "height": container.height,
                 "depth": container.depth,
                 "capacity": container.capacity,
+                "container_type": container.container_type,
+                "zone": container.zone,
                 "items": items
             })
         
@@ -276,7 +284,10 @@ async def place_items(db: Session = Depends(get_db)):
                             "x": item.position_x,
                             "y": item.position_y,
                             "z": item.position_z
-                        }
+                        },
+                        "priority": item.priority,
+                        "preferred_zone": item.preferred_zone,
+                        "is_waste": item.is_waste
                     })
             
             container_data.append({
@@ -285,6 +296,8 @@ async def place_items(db: Session = Depends(get_db)):
                 "height": container.height,
                 "depth": container.depth,
                 "capacity": container.capacity,
+                "container_type": container.container_type,
+                "zone": container.zone,
                 "items": items
             })
         
@@ -296,10 +309,15 @@ async def place_items(db: Session = Depends(get_db)):
                 "width": item.width,
                 "height": item.height,
                 "depth": item.depth,
-                "weight": item.weight
+                "weight": item.weight,
+                "priority": item.priority,
+                "preferred_zone": item.preferred_zone
             }
             for item in result.get("unplaced_items", [])
         ]
+        
+        # Log the placement action
+        log_action(db, "placement", None, None, "system", f"Placed {result.get('placed_count', 0)} items")
         
         return PlacementResult(
             success=True,
@@ -317,13 +335,22 @@ async def place_items(db: Session = Depends(get_db)):
 
 # Get retrieval path for an item
 @app.get("/retrieve/{item_id}", response_model=RetrievalResponse)
-async def retrieve_item(item_id: str, db: Session = Depends(get_db)):
+async def retrieve_item(
+    item_id: str, 
+    astronaut: str = "system",
+    db: Session = Depends(get_db)
+):
     try:
         # Initialize the placement service
         placement_service = PlacementService(db)
         
         # Get the retrieval path
-        result = placement_service.get_retrieval_path(item_id)
+        result = placement_service.get_retrieval_path(item_id, user=astronaut)
+        
+        # Log the retrieval action
+        if result["found"]:
+            container_id = result["location"]["container"] if result["location"] else None
+            log_action(db, "retrieval", item_id, container_id, astronaut, "Item retrieved")
         
         return result
     
@@ -367,7 +394,10 @@ async def repack_items(db: Session = Depends(get_db)):
                             "x": item.position_x,
                             "y": item.position_y,
                             "z": item.position_z
-                        }
+                        },
+                        "priority": item.priority,
+                        "preferred_zone": item.preferred_zone,
+                        "is_waste": item.is_waste
                     })
             
             container_data.append({
@@ -376,6 +406,8 @@ async def repack_items(db: Session = Depends(get_db)):
                 "height": container.height,
                 "depth": container.depth,
                 "capacity": container.capacity,
+                "container_type": container.container_type,
+                "zone": container.zone,
                 "items": items
             })
         
@@ -387,10 +419,15 @@ async def repack_items(db: Session = Depends(get_db)):
                 "width": item.width,
                 "height": item.height,
                 "depth": item.depth,
-                "weight": item.weight
+                "weight": item.weight,
+                "priority": item.priority,
+                "preferred_zone": item.preferred_zone
             }
             for item in result.get("unplaced_items", [])
         ]
+        
+        # Log the repack action
+        log_action(db, "repack", None, None, "system", f"Repacked all items")
         
         return PlacementResult(
             success=True,
@@ -404,6 +441,105 @@ async def repack_items(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error repacking items: {str(e)}"
+        )
+
+# Get rearrangement recommendations
+@app.post("/rearrangement-recommendation")
+async def get_rearrangement_recommendation(db: Session = Depends(get_db)):
+    try:
+        # Initialize the placement service
+        placement_service = PlacementService(db)
+        
+        # Get rearrangement recommendations
+        result = placement_service.suggest_rearrangement()
+        
+        # Log the rearrangement recommendation
+        log_action(db, "rearrangement_recommendation", None, None, "system", 
+                  f"Rearrangement recommendation with {len(result.get('rearrangement_plan', []))} moves")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error getting rearrangement recommendation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting rearrangement recommendation: {str(e)}"
+        )
+
+# Waste management
+@app.post("/waste-management", response_model=WasteManagementResponse)
+async def manage_waste(
+    undocking: bool = False, 
+    max_weight: Optional[float] = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Initialize the placement service
+        placement_service = PlacementService(db)
+        
+        # Run waste management
+        result = placement_service.manage_waste(undocking=undocking, max_weight=max_weight)
+        
+        # Log the waste management action
+        log_action(db, "waste_management", None, None, "system", 
+                  f"Waste management {'with undocking' if undocking else 'without undocking'}")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error in waste management: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error in waste management: {str(e)}"
+        )
+
+# Time simulation
+@app.post("/simulate-time", response_model=SimulationResponse)
+async def simulate_time(
+    days: int = Body(1),
+    usage_plan: Dict[str, int] = Body({}),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Initialize the placement service
+        placement_service = PlacementService(db)
+        
+        # Run time simulation
+        result = placement_service.simulate_time(days=days, usage_plan=usage_plan)
+        
+        # Log the time simulation
+        log_action(db, "time_simulation", None, None, "system", 
+                  f"Simulated {days} days with {len(usage_plan)} items used")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error in time simulation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error in time simulation: {str(e)}"
+        )
+
+# Simulate a day with basic usage
+@app.post("/simulate-day", response_model=SimulationResponse)
+async def simulate_day(db: Session = Depends(get_db)):
+    try:
+        # Initialize the placement service
+        placement_service = PlacementService(db)
+        
+        # Run time simulation for 1 day with no specific usage plan
+        result = placement_service.simulate_time(days=1)
+        
+        # Log the day simulation
+        log_action(db, "day_simulation", None, None, "system", "Simulated 1 day")
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error in day simulation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error in day simulation: {str(e)}"
         )
 
 # Run the application

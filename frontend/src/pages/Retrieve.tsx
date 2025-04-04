@@ -15,6 +15,8 @@ interface RetrievalResult {
       z: number;
     };
   };
+  retrieval_time: string;
+  retrieved_by: string;
 }
 
 const RetrievePage = () => {

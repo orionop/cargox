@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getContainers } from '../api';
+import { fetchContainers } from '../api';
 import { Loader, Box, Layers, AlertTriangle, Info } from 'lucide-react';
 
 interface Container {
@@ -8,6 +8,8 @@ interface Container {
   height: number;
   depth: number;
   capacity: number;
+  container_type: string;
+  zone: string | null;
   items: Array<{
     id: string;
     name: string;
@@ -22,6 +24,9 @@ interface Container {
       y: number;
       z: number;
     };
+    priority: number;
+    preferred_zone: string | null;
+    is_waste: boolean;
   }>;
 }
 
@@ -32,16 +37,16 @@ const ContainersPage = () => {
   const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchContainers = async () => {
+    const getContainersData = async () => {
       try {
         console.log('Fetching containers...');
         // Try to access API directly first for debugging
-        const checkResponse = await fetch('http://localhost:8001/containers');
+        const checkResponse = await fetch('http://localhost:8000/containers');
         const checkData = await checkResponse.json();
         console.log('Direct fetch response:', checkData);
         
         // Now try with the API function
-        const response = await getContainers();
+        const response = await fetchContainers();
         console.log('Container data via API:', response.data);
         setContainers(response.data);
         if (response.data.length > 0) {
@@ -55,7 +60,7 @@ const ContainersPage = () => {
       }
     };
 
-    fetchContainers();
+    getContainersData();
   }, []);
 
   const getSelectedContainer = () => {

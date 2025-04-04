@@ -1,5 +1,6 @@
-id,width,height,depth,capacity
-C001,10.0,5.0,8.0,5
-C002,8.0,4.0,6.0,3
-C003,12.0,6.0,10.0,8
-C004,15.0,7.0,12.0,10 
+id,width,height,depth,capacity,container_type,zone
+C001,10.0,5.0,8.0,5,storage,A
+C002,8.0,4.0,6.0,3,storage,B
+C003,12.0,6.0,10.0,8,storage,A
+C004,15.0,7.0,12.0,10,storage,C
+C005,10.0,5.0,8.0,5,waste,W 

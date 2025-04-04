@@ -1,16 +1,16 @@
-id,name,width,height,depth,weight
-I001,Electronics Box,2.0,1.5,3.0,5.0
-I002,Medical Supplies,3.0,2.0,2.5,4.0
-I003,Food Container,4.0,2.0,3.0,6.0
-I004,Scientific Equipment,2.5,1.8,2.2,3.5
-I005,Oxygen Regulator,1.5,1.2,1.8,2.0
-I006,Water Filter,2.8,2.0,1.5,3.2
-I007,Emergency Kit,2.0,1.0,1.5,1.8
-I008,Battery Pack,1.5,1.0,1.0,4.5
-I009,Communication Device,1.0,0.8,1.2,1.0
-I010,Tool Kit,3.5,2.0,2.5,5.5
-I011,Experiment Container,4.5,3.0,3.5,7.0
-I012,Waste Management Unit,3.0,2.5,2.8,4.5
-I013,Spacesuit Component,3.2,1.8,2.2,3.0
-I014,Propellant Canister,1.8,1.8,2.5,6.0
-I015,Navigation Hardware,2.0,1.5,1.5,2.5 
+id,name,width,height,depth,weight,priority,preferred_zone,expiry_date,usage_limit
+I001,Electronics Box,2.0,1.5,3.0,5.0,80,A,2026-01-01,100
+I002,Medical Supplies,3.0,2.0,2.5,4.0,90,B,2025-06-15,50
+I003,Food Container,4.0,2.0,3.0,6.0,70,A,2025-03-30,10
+I004,Scientific Equipment,2.5,1.8,2.2,3.5,85,C,2027-12-31,500
+I005,Oxygen Tank,3.5,2.2,2.0,7.0,95,A,N/A,200
+I006,Water Container,2.8,3.0,2.5,8.0,75,B,2025-08-01,30
+I007,Tool Kit,2.2,1.5,1.8,3.0,60,C,N/A,1000
+I008,Emergency Kit,3.0,2.5,2.0,4.5,99,A,2026-05-15,5
+I009,Communication Device,1.5,1.0,0.8,1.0,85,B,N/A,300
+I010,Navigation System,2.0,1.8,1.5,2.5,80,C,N/A,150
+I011,Experiment Container,4.5,3.0,3.5,7.0,75,A,2026-08-15,50
+I012,Waste Management Unit,3.0,2.5,2.8,4.5,65,W,N/A,200
+I013,Spacesuit Component,3.2,1.8,2.2,3.0,88,B,N/A,150
+I014,Propellant Canister,1.8,1.8,2.5,6.0,70,C,2025-12-01,15
+I015,Navigation Hardware,2.0,1.5,1.5,2.5,75,A,N/A,200 

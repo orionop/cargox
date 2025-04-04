@@ -4,210 +4,169 @@ from typing import List, Dict, Any, Set
 from sqlalchemy.orm import Session
 from loguru import logger
 from models import Container, Item
+from datetime import datetime
+import logging
 
-def parse_containers_csv(file_content: bytes) -> List[Dict[str, Any]]:
-    """
-    Parse a containers CSV file and return a list of container dictionaries.
-    
-    Args:
-        file_content: The content of the CSV file as bytes
-        
-    Returns:
-        List of container dictionaries
-    """
-    containers = []
-    standard_columns = {'id', 'width', 'height', 'depth', 'capacity'}
-    alternate_columns = {'zone', 'container_id', 'width_cm', 'depth_cm', 'height_cm'}
-    
+def parse_containers_csv(contents: bytes) -> List[Dict[str, Any]]:
+    """Parse a CSV file containing container information."""
     try:
-        decoded_content = file_content.decode('utf-8')
-        csv_reader = csv.DictReader(io.StringIO(decoded_content))
-        fieldnames = set(csv_reader.fieldnames) if csv_reader.fieldnames else set()
+        decoded = contents.decode('utf-8')
+        csv_file = io.StringIO(decoded)
+        reader = csv.DictReader(csv_file)
         
-        # Check if we're using the alternate format
-        using_alternate_format = alternate_columns.issubset(fieldnames)
-        
-        # Check if standard format is used
-        using_standard_format = standard_columns.issubset(fieldnames)
-        
-        if not (using_standard_format or using_alternate_format):
-            logger.error(f"CSV does not match any supported format. Fields: {fieldnames}")
-            return []
-        
-        for row in csv_reader:
+        containers = []
+        for row in reader:
             try:
-                if using_alternate_format:
-                    # Using alternate format (zone, container_id, width_cm, depth_cm, height_cm)
+                # Debug info
+                logger.info(f"Processing container row: {row}")
+                
+                # Handle new CSV format with columns zone, container_id, width_cm, depth_cm, height_cm
+                if all(key in row and row[key] for key in ['zone', 'container_id', 'width_cm', 'depth_cm', 'height_cm']):
                     container = {
                         'id': row['container_id'],
-                        'width': float(row['width_cm']),
-                        'height': float(row['height_cm']),
-                        'depth': float(row['depth_cm']),
-                        'capacity': 5  # Default capacity since it's not in the input
+                        'width': float(row['width_cm']) / 100,  # Convert cm to meters
+                        'height': float(row['height_cm']) / 100,  # Convert cm to meters
+                        'depth': float(row['depth_cm']) / 100,  # Convert cm to meters
+                        'capacity': 10,  # Default capacity as it's not in the new format
+                        'container_type': 'storage',  # Default type
+                        'zone': row['zone']
                     }
-                else:
-                    # Using standard format
+                    containers.append(container)
+                # Handle standard format with id, width, height, depth, capacity
+                elif all(key in row and row[key] for key in ['id', 'width', 'height', 'depth']):
                     container = {
                         'id': row['id'],
                         'width': float(row['width']),
                         'height': float(row['height']),
                         'depth': float(row['depth']),
-                        'capacity': int(row['capacity'])
+                        'capacity': int(row['capacity']) if 'capacity' in row and row['capacity'] else 10,
                     }
-                containers.append(container)
-            except (ValueError, KeyError) as e:
-                logger.error(f"Error parsing container row: {row}, Error: {str(e)}")
+                    
+                    # Add optional fields if present
+                    if 'zone' in row and row['zone']:
+                        container['zone'] = row['zone']
+                    if 'container_type' in row and row['container_type']:
+                        container['container_type'] = row['container_type']
+                    
+                    containers.append(container)
+                else:
+                    logger.warning(f"Skipping row with unknown format: {row}")
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping row due to error: {e} - {row}")
+                continue
         
-        logger.info(f"Successfully parsed {len(containers)} containers from CSV")
         return containers
-    
     except Exception as e:
-        logger.error(f"Error parsing containers CSV: {str(e)}")
+        logger.error(f"Error parsing containers CSV: {e}")
         return []
 
-def parse_items_csv(file_content: bytes) -> List[Dict[str, Any]]:
-    """
-    Parse an items CSV file and return a list of item dictionaries.
-    
-    Args:
-        file_content: The content of the CSV file as bytes
-        
-    Returns:
-        List of item dictionaries
-    """
-    items = []
-    standard_columns = {'id', 'name', 'width', 'height', 'depth', 'weight'}
-    alternate_columns = {'item_id', 'name', 'width_cm', 'depth_cm', 'height_cm', 'mass_kg'}
-    
+def parse_items_csv(contents: bytes) -> List[Dict[str, Any]]:
+    """Parse a CSV file containing item information."""
     try:
-        decoded_content = file_content.decode('utf-8')
-        csv_reader = csv.DictReader(io.StringIO(decoded_content))
-        fieldnames = set(csv_reader.fieldnames) if csv_reader.fieldnames else set()
+        decoded = contents.decode('utf-8')
+        csv_file = io.StringIO(decoded)
+        reader = csv.DictReader(csv_file)
         
-        # Check if we're using the alternate format
-        using_alternate_format = 'item_id' in fieldnames and 'width_cm' in fieldnames
-        
-        # Check if standard format is used
-        using_standard_format = standard_columns.issubset(fieldnames)
-        
-        if not (using_standard_format or using_alternate_format):
-            logger.error(f"CSV does not match any supported format. Fields: {fieldnames}")
-            return []
-        
-        for row in csv_reader:
+        items = []
+        for row in reader:
             try:
-                if using_alternate_format:
-                    # Using alternate format with item_id, width_cm etc.
-                    item = {
-                        'id': row['item_id'],
-                        'name': row['name'],
-                        'width': float(row['width_cm']),
-                        'height': float(row['height_cm']),
-                        'depth': float(row['depth_cm']),
-                        'weight': float(row['mass_kg'])
-                    }
-                else:
-                    # Using standard format
-                    item = {
-                        'id': row['id'],
-                        'name': row['name'],
-                        'width': float(row['width']),
-                        'height': float(row['height']),
-                        'depth': float(row['depth']),
-                        'weight': float(row['weight'])
-                    }
+                item = {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'width': float(row['width']),
+                    'height': float(row['height']),
+                    'depth': float(row['depth']),
+                    'weight': float(row['weight']),
+                }
+                
+                # Add priority if present
+                if 'priority' in row:
+                    item['priority'] = int(row['priority'])
+                
+                # Add preferred zone if present
+                if 'preferred_zone' in row:
+                    item['preferred_zone'] = row['preferred_zone']
+                
+                # Add expiry date if present and valid
+                if 'expiry_date' in row and row['expiry_date'] and row['expiry_date'].lower() != 'n/a':
+                    try:
+                        item['expiry_date'] = datetime.strptime(row['expiry_date'], '%Y-%m-%d').date()
+                    except ValueError:
+                        logger.warning(f"Invalid expiry date format for item {row['id']}: {row['expiry_date']}")
+                
+                # Add usage limit if present
+                if 'usage_limit' in row and row['usage_limit']:
+                    try:
+                        item['usage_limit'] = int(row['usage_limit'])
+                    except ValueError:
+                        logger.warning(f"Invalid usage_limit for item {row['id']}: {row['usage_limit']}")
+                
                 items.append(item)
-            except (ValueError, KeyError) as e:
-                logger.error(f"Error parsing item row: {row}, Error: {str(e)}")
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping row due to error: {e} - {row}")
+                continue
         
-        logger.info(f"Successfully parsed {len(items)} items from CSV")
         return items
-    
     except Exception as e:
-        logger.error(f"Error parsing items CSV: {str(e)}")
+        logger.error(f"Error parsing items CSV: {e}")
         return []
 
 def import_containers_to_db(db: Session, containers: List[Dict[str, Any]]) -> int:
-    """
-    Import containers into the database.
-    
-    Args:
-        db: Database session
-        containers: List of container dictionaries
+    """Import containers into the database, returns count of imported containers."""
+    count = 0
+    for container_data in containers:
+        # Check if container already exists
+        existing = db.query(Container).filter(Container.id == container_data['id']).first()
         
-    Returns:
-        Number of containers imported
-    """
-    try:
-        count = 0
-        for container_data in containers:
+        if existing:
+            # Update existing container
+            for key, value in container_data.items():
+                setattr(existing, key, value)
+        else:
+            # Create new container
             container = Container(**container_data)
-            db.merge(container)  # Using merge to handle duplicates
-            count += 1
+            db.add(container)
         
-        db.commit()
-        logger.info(f"Successfully imported {count} containers to database")
-        return count
+        count += 1
     
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error importing containers to database: {str(e)}")
-        return 0
+    db.commit()
+    return count
 
 def import_items_to_db(db: Session, items: List[Dict[str, Any]]) -> int:
-    """
-    Import items into the database.
-    
-    Args:
-        db: Database session
-        items: List of item dictionaries
+    """Import items into the database, returns count of imported items."""
+    count = 0
+    for item_data in items:
+        # Check if item already exists
+        existing = db.query(Item).filter(Item.id == item_data['id']).first()
         
-    Returns:
-        Number of items imported
-    """
-    try:
-        count = 0
-        for item_data in items:
+        if existing:
+            # Update existing item
+            for key, value in item_data.items():
+                setattr(existing, key, value)
+        else:
+            # Create new item
             item = Item(**item_data)
-            db.merge(item)  # Using merge to handle duplicates
-            count += 1
+            db.add(item)
         
-        db.commit()
-        logger.info(f"Successfully imported {count} items to database")
-        return count
+        count += 1
     
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error importing items to database: {str(e)}")
-        return 0
+    db.commit()
+    return count
 
-def clear_placements(db: Session) -> int:
-    """
-    Clear all item placements in the database.
+def clear_placements(db: Session) -> None:
+    """Clear all item placements (reset container_id and position)."""
+    items = db.query(Item).all()
     
-    Args:
-        db: Database session
-        
-    Returns:
-        Number of items reset
-    """
-    try:
-        items = db.query(Item).all()
-        count = 0
-        
-        for item in items:
-            item.container_id = None
-            item.position_x = None
-            item.position_y = None
-            item.position_z = None
-            item.is_placed = False
-            count += 1
-        
-        db.commit()
-        logger.info(f"Successfully cleared placements for {count} items")
-        return count
+    for item in items:
+        item.container_id = None
+        item.position_x = None
+        item.position_y = None
+        item.position_z = None
+        item.is_placed = False
     
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error clearing placements: {str(e)}")
-        return 0 
+    db.commit()
+
+def log_action(db: Session, action: str, item_id: str = None, container_id: str = None, user: str = "system", details: str = None):
+    """Log actions performed on items and containers."""
+    logger.info(f"ACTION: {action} | ITEM: {item_id} | CONTAINER: {container_id} | USER: {user} | DETAILS: {details}")
+    # Note: In a production system, you would store this in a dedicated log table in the database 
