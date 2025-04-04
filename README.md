@@ -80,29 +80,4 @@ If you encounter issues with CSV imports, ensure:
 3. The file is saved in UTF-8 encoding
 4. Numeric values use periods (.) as decimal separators, not commas
 
-## Project Structure
 
-```
-project/
-├── src/                  # Frontend Vite/React application
-│   ├── api/              # API client for backend communication
-│   ├── components/       # React components
-│   ├── pages/            # Page components including Upload.tsx
-│   └── main.tsx          # Main entry point
-├── backend/              # Backend API (runs in Docker)
-│   ├── main.py           # FastAPI application
-│   ├── database.py       # Database connection
-│   └── services/         # Business logic services
-├── docker-compose.yml    # Docker configuration for backend
-└── README.md             # This file
-```
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Inspired by the innovative work of the Indian Space Research Organisation (ISRO)
-- Built as a demonstration project for modern web application architecture 
->>>>>>> 72edad0 (Initial commit)
