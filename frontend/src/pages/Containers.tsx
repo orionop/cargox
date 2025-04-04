@@ -34,15 +34,22 @@ const ContainersPage = () => {
   useEffect(() => {
     const fetchContainers = async () => {
       try {
+        console.log('Fetching containers...');
+        // Try to access API directly first for debugging
+        const checkResponse = await fetch('http://localhost:8001/containers');
+        const checkData = await checkResponse.json();
+        console.log('Direct fetch response:', checkData);
+        
+        // Now try with the API function
         const response = await getContainers();
-        console.log('Container data:', response.data);
+        console.log('Container data via API:', response.data);
         setContainers(response.data);
         if (response.data.length > 0) {
           setSelectedContainer(response.data[0].id);
         }
       } catch (err) {
+        console.error('Error fetching containers:', err);
         setError('Failed to load containers');
-        console.error(err);
       } finally {
         setLoading(false);
       }

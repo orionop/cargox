@@ -4,7 +4,7 @@
  */
 
 // Configuration - make sure this points to your Docker backend
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8001';
 
 /**
  * Import containers from a CSV file

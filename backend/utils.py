@@ -16,27 +16,44 @@ def parse_containers_csv(file_content: bytes) -> List[Dict[str, Any]]:
         List of container dictionaries
     """
     containers = []
-    required_columns = {'id', 'width', 'height', 'depth', 'capacity'}
+    standard_columns = {'id', 'width', 'height', 'depth', 'capacity'}
+    alternate_columns = {'zone', 'container_id', 'width_cm', 'depth_cm', 'height_cm'}
     
     try:
         decoded_content = file_content.decode('utf-8')
         csv_reader = csv.DictReader(io.StringIO(decoded_content))
+        fieldnames = set(csv_reader.fieldnames) if csv_reader.fieldnames else set()
         
-        # Check if all required columns are present
-        if not required_columns.issubset(set(csv_reader.fieldnames)):
-            missing = required_columns - set(csv_reader.fieldnames)
-            logger.error(f"Missing required columns in containers CSV: {missing}")
+        # Check if we're using the alternate format
+        using_alternate_format = alternate_columns.issubset(fieldnames)
+        
+        # Check if standard format is used
+        using_standard_format = standard_columns.issubset(fieldnames)
+        
+        if not (using_standard_format or using_alternate_format):
+            logger.error(f"CSV does not match any supported format. Fields: {fieldnames}")
             return []
         
         for row in csv_reader:
             try:
-                container = {
-                    'id': row['id'],
-                    'width': float(row['width']),
-                    'height': float(row['height']),
-                    'depth': float(row['depth']),
-                    'capacity': int(row['capacity'])
-                }
+                if using_alternate_format:
+                    # Using alternate format (zone, container_id, width_cm, depth_cm, height_cm)
+                    container = {
+                        'id': row['container_id'],
+                        'width': float(row['width_cm']),
+                        'height': float(row['height_cm']),
+                        'depth': float(row['depth_cm']),
+                        'capacity': 5  # Default capacity since it's not in the input
+                    }
+                else:
+                    # Using standard format
+                    container = {
+                        'id': row['id'],
+                        'width': float(row['width']),
+                        'height': float(row['height']),
+                        'depth': float(row['depth']),
+                        'capacity': int(row['capacity'])
+                    }
                 containers.append(container)
             except (ValueError, KeyError) as e:
                 logger.error(f"Error parsing container row: {row}, Error: {str(e)}")
@@ -59,28 +76,46 @@ def parse_items_csv(file_content: bytes) -> List[Dict[str, Any]]:
         List of item dictionaries
     """
     items = []
-    required_columns = {'id', 'name', 'width', 'height', 'depth', 'weight'}
+    standard_columns = {'id', 'name', 'width', 'height', 'depth', 'weight'}
+    alternate_columns = {'item_id', 'name', 'width_cm', 'depth_cm', 'height_cm', 'mass_kg'}
     
     try:
         decoded_content = file_content.decode('utf-8')
         csv_reader = csv.DictReader(io.StringIO(decoded_content))
+        fieldnames = set(csv_reader.fieldnames) if csv_reader.fieldnames else set()
         
-        # Check if all required columns are present
-        if not required_columns.issubset(set(csv_reader.fieldnames)):
-            missing = required_columns - set(csv_reader.fieldnames)
-            logger.error(f"Missing required columns in items CSV: {missing}")
+        # Check if we're using the alternate format
+        using_alternate_format = 'item_id' in fieldnames and 'width_cm' in fieldnames
+        
+        # Check if standard format is used
+        using_standard_format = standard_columns.issubset(fieldnames)
+        
+        if not (using_standard_format or using_alternate_format):
+            logger.error(f"CSV does not match any supported format. Fields: {fieldnames}")
             return []
         
         for row in csv_reader:
             try:
-                item = {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'width': float(row['width']),
-                    'height': float(row['height']),
-                    'depth': float(row['depth']),
-                    'weight': float(row['weight'])
-                }
+                if using_alternate_format:
+                    # Using alternate format with item_id, width_cm etc.
+                    item = {
+                        'id': row['item_id'],
+                        'name': row['name'],
+                        'width': float(row['width_cm']),
+                        'height': float(row['height_cm']),
+                        'depth': float(row['depth_cm']),
+                        'weight': float(row['mass_kg'])
+                    }
+                else:
+                    # Using standard format
+                    item = {
+                        'id': row['id'],
+                        'name': row['name'],
+                        'width': float(row['width']),
+                        'height': float(row['height']),
+                        'depth': float(row['depth']),
+                        'weight': float(row['weight'])
+                    }
                 items.append(item)
             except (ValueError, KeyError) as e:
                 logger.error(f"Error parsing item row: {row}, Error: {str(e)}")
