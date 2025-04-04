@@ -6,6 +6,9 @@ import Home from './pages/Home';
 import Upload from './pages/Upload';
 import Containers from './pages/Containers';
 import Retrieve from './pages/Retrieve';
+import Simulation from './pages/Simulation';
+import Waste from './pages/Waste';
+import Logs from './pages/Logs';
 
 function App() {
   return (
@@ -17,6 +20,9 @@ function App() {
           <Route path="upload" element={<Upload />} />
           <Route path="containers" element={<Containers />} />
           <Route path="retrieve" element={<Retrieve />} />
+          <Route path="simulation" element={<Simulation />} />
+          <Route path="waste" element={<Waste />} />
+          <Route path="logs" element={<Logs />} />
         </Route>
       </Routes>
     </BrowserRouter>

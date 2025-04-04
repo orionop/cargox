@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Boxes, Upload, Search, Home, Activity, BarChart3 } from 'lucide-react';
+import { Boxes, Upload, Search, Home, Activity, BarChart3, Calendar, Trash2, ClipboardList } from 'lucide-react';
 
 const Layout = () => {
   const location = useLocation();
@@ -90,6 +90,42 @@ const Layout = () => {
           >
             <Search className="h-5 w-5 md:mr-3" />
             <span className="hidden md:block text-sm">_RETRIEVE</span>
+          </Link>
+          
+          <Link
+            to="/simulation"
+            className={`flex items-center py-3 px-3 rounded-md ${
+              isActive('/simulation') 
+                ? 'bg-green-900/30 text-green-400 border-l-2 border-green-500' 
+                : 'text-gray-400 hover:text-green-400 hover:bg-green-900/10'
+            }`}
+          >
+            <Calendar className="h-5 w-5 md:mr-3" />
+            <span className="hidden md:block text-sm">_SIMULATION</span>
+          </Link>
+          
+          <Link
+            to="/waste"
+            className={`flex items-center py-3 px-3 rounded-md ${
+              isActive('/waste') 
+                ? 'bg-green-900/30 text-green-400 border-l-2 border-green-500' 
+                : 'text-gray-400 hover:text-green-400 hover:bg-green-900/10'
+            }`}
+          >
+            <Trash2 className="h-5 w-5 md:mr-3" />
+            <span className="hidden md:block text-sm">_WASTE</span>
+          </Link>
+          
+          <Link
+            to="/logs"
+            className={`flex items-center py-3 px-3 rounded-md ${
+              isActive('/logs') 
+                ? 'bg-green-900/30 text-green-400 border-l-2 border-green-500' 
+                : 'text-gray-400 hover:text-green-400 hover:bg-green-900/10'
+            }`}
+          >
+            <ClipboardList className="h-5 w-5 md:mr-3" />
+            <span className="hidden md:block text-sm">_LOGS</span>
           </Link>
         </nav>
         

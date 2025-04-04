@@ -1,20 +1,22 @@
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 # Load environment variables early
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status, Body
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
 from loguru import logger
+from sqlalchemy import or_
+from pydantic import BaseModel
 
 from database import get_db
-from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse, WasteManagementResponse, SimulationResponse
+from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse, WasteManagementResponse, SimulationResponse, LogEntry, LogEntryResponse
 from utils import (
     parse_containers_csv, parse_items_csv, 
     import_containers_to_db, import_items_to_db,
@@ -361,6 +363,74 @@ async def retrieve_item(
             detail=f"Error retrieving item: {str(e)}"
         )
 
+# Track item retrieval (usage)
+@app.post("/retrieve/{item_id}")
+async def retrieve_item_usage(
+    item_id: str,
+    astronaut: str = Body("system"),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Get the item
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Item with ID {item_id} not found"
+            )
+        
+        # Update usage count if limit exists
+        if item.usage_limit is not None:
+            item.usage_count += 1
+            
+            # Check if item is now waste (fully used)
+            if item.usage_limit > 0 and item.usage_count >= item.usage_limit:
+                item.is_waste = True
+                logger.info(f"Item {item_id} marked as waste: usage limit reached")
+        
+        # Record retrieval time and user
+        item.last_retrieved = datetime.now().date()
+        item.last_retrieved_by = astronaut
+        
+        # Temporarily remove item from container (will be placed back with /place endpoint)
+        old_container_id = item.container_id
+        item.container_id = None
+        item.position_x = None
+        item.position_y = None
+        item.position_z = None
+        item.is_placed = False
+        
+        # Save changes
+        db.commit()
+        
+        # Log the retrieval
+        log_action(db, "retrieval", item_id, old_container_id, astronaut, 
+                  f"Item retrieved. New usage count: {item.usage_count}/{item.usage_limit if item.usage_limit else 'unlimited'}")
+        
+        return {
+            "success": True,
+            "message": f"Item {item_id} retrieved by {astronaut}",
+            "item": {
+                "id": item.id,
+                "name": item.name,
+                "usage_count": item.usage_count,
+                "usage_limit": item.usage_limit,
+                "is_waste": item.is_waste,
+                "last_retrieved": item.last_retrieved.isoformat() if item.last_retrieved else None,
+                "last_retrieved_by": item.last_retrieved_by
+            }
+        }
+    
+    except HTTPException:
+        raise
+    
+    except Exception as e:
+        logger.error(f"Error retrieving item {item_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving item: {str(e)}"
+        )
+
 # Clear all placements and rerun the placement algorithm
 @app.post("/repack", response_model=PlacementResult)
 async def repack_items(db: Session = Depends(get_db)):
@@ -540,6 +610,475 @@ async def simulate_day(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error in day simulation: {str(e)}"
+        )
+
+# Pydantic model for usage plan
+class UsagePlanRequest(BaseModel):
+    usage_plan: Dict[str, int] = {}
+
+# Simulate a day passing in the system
+@app.post("/simulate/day")
+async def simulate_day(
+    request: UsagePlanRequest = Body(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        usage_plan = request.usage_plan
+        
+        # Move forward one day
+        simulated_date = datetime.now().date() + timedelta(days=1)
+        expired_items = []
+        used_items = []
+        
+        # Process usage plan (use each item the specified number of times)
+        for item_id, uses in usage_plan.items():
+            item = db.query(Item).filter(Item.id == item_id).first()
+            if not item:
+                logger.warning(f"Item {item_id} from usage plan not found")
+                continue
+                
+            # Skip waste items
+            if item.is_waste:
+                continue
+                
+            # Update usage count
+            if item.usage_limit is not None:
+                old_count = item.usage_count
+                item.usage_count += uses
+                
+                used_items.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "old_count": old_count,
+                    "new_count": item.usage_count,
+                    "limit": item.usage_limit
+                })
+                
+                # Check if item is now waste (fully used)
+                if item.usage_limit > 0 and item.usage_count >= item.usage_limit:
+                    item.is_waste = True
+                    logger.info(f"Item {item_id} marked as waste: usage limit reached during simulation")
+        
+        # Check for expired items
+        items = db.query(Item).filter(Item.is_waste == False).all()
+        for item in items:
+            if item.expiry_date and item.expiry_date <= simulated_date:
+                item.is_waste = True
+                expired_items.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "expiry_date": item.expiry_date.isoformat()
+                })
+                logger.info(f"Item {item.id} marked as waste: expired during simulation")
+        
+        # Save changes
+        db.commit()
+        
+        # Log the simulation
+        log_action(db, "day_simulation", None, None, "system", 
+                  f"Simulated day: {len(used_items)} items used, {len(expired_items)} items expired")
+        
+        return {
+            "success": True,
+            "message": f"Simulated day (now {simulated_date.isoformat()})",
+            "simulated_date": simulated_date.isoformat(),
+            "used_items": used_items,
+            "expired_items": expired_items
+        }
+    
+    except Exception as e:
+        logger.error(f"Error simulating day: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error simulating day: {str(e)}"
+        )
+
+# Search for items
+@app.get("/search")
+async def search_items(
+    query: Optional[str] = None,
+    zone: Optional[str] = None,
+    priority_min: Optional[int] = None,
+    priority_max: Optional[int] = None,
+    is_waste: Optional[bool] = None,
+    container_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Start with all items
+        items_query = db.query(Item)
+        
+        # Apply filters
+        if query:
+            items_query = items_query.filter(
+                or_(
+                    Item.id.ilike(f"%{query}%"),
+                    Item.name.ilike(f"%{query}%")
+                )
+            )
+        
+        if zone:
+            containers_in_zone = db.query(Container.id).filter(Container.zone == zone)
+            items_query = items_query.filter(Item.container_id.in_(containers_in_zone))
+        
+        if priority_min is not None:
+            items_query = items_query.filter(Item.priority >= priority_min)
+            
+        if priority_max is not None:
+            items_query = items_query.filter(Item.priority <= priority_max)
+            
+        if is_waste is not None:
+            items_query = items_query.filter(Item.is_waste == is_waste)
+            
+        if container_id:
+            items_query = items_query.filter(Item.container_id == container_id)
+        
+        # Execute query
+        items = items_query.all()
+        
+        # Format results
+        results = []
+        for item in items:
+            # Get container info if placed
+            container_info = None
+            if item.container_id:
+                container = db.query(Container).filter(Container.id == item.container_id).first()
+                if container:
+                    container_info = {
+                        "id": container.id,
+                        "zone": container.zone,
+                        "type": container.container_type
+                    }
+            
+            results.append({
+                "id": item.id,
+                "name": item.name,
+                "width": item.width,
+                "height": item.height,
+                "depth": item.depth,
+                "weight": item.weight,
+                "priority": item.priority,
+                "preferred_zone": item.preferred_zone,
+                "is_placed": item.is_placed,
+                "container": container_info,
+                "position": {
+                    "x": item.position_x,
+                    "y": item.position_y,
+                    "z": item.position_z
+                } if item.is_placed else None,
+                "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
+                "usage_limit": item.usage_limit,
+                "usage_count": item.usage_count,
+                "is_waste": item.is_waste
+            })
+        
+        log_action(db, "search", None, None, "system", f"Searched for items: found {len(results)} results")
+        return results
+    
+    except Exception as e:
+        logger.error(f"Error searching items: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error searching items: {str(e)}"
+        )
+
+# Place item in a container after use
+@app.post("/place")
+async def place_item(
+    item_id: str = Body(...),
+    container_id: str = Body(...),
+    position_x: float = Body(0.0),
+    position_y: float = Body(0.0),
+    position_z: float = Body(0.0),
+    astronaut: str = Body("system"),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Get the item
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Item with ID {item_id} not found"
+            )
+            
+        # Get the container
+        container = db.query(Container).filter(Container.id == container_id).first()
+        if not container:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Container with ID {container_id} not found"
+            )
+            
+        # Validate position is within container dimensions
+        if position_x < 0 or position_x + item.width > container.width:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item width exceeds container boundaries or invalid x position"
+            )
+            
+        if position_y < 0 or position_y + item.height > container.height:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item height exceeds container boundaries or invalid y position"
+            )
+            
+        if position_z < 0 or position_z + item.depth > container.depth:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item depth exceeds container boundaries or invalid z position"
+            )
+            
+        # Update item placement
+        item.container_id = container_id
+        item.position_x = position_x
+        item.position_y = position_y
+        item.position_z = position_z
+        item.is_placed = True
+        
+        # Save changes
+        db.commit()
+        
+        # Log the placement
+        log_action(db, "placement", item_id, container_id, astronaut, 
+                  f"Item placed in container at position ({position_x}, {position_y}, {position_z})")
+        
+        return {
+            "success": True,
+            "message": f"Item {item_id} placed in container {container_id} by {astronaut}",
+            "item": {
+                "id": item.id,
+                "name": item.name,
+                "container_id": item.container_id,
+                "position": {
+                    "x": item.position_x,
+                    "y": item.position_y,
+                    "z": item.position_z
+                },
+                "is_placed": item.is_placed
+            }
+        }
+    
+    except HTTPException:
+        raise
+    
+    except Exception as e:
+        logger.error(f"Error placing item {item_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error placing item: {str(e)}"
+        )
+
+# Identify waste items based on expiry and usage
+@app.get("/waste/identify")
+async def identify_waste(
+    db: Session = Depends(get_db)
+):
+    try:
+        today = datetime.now().date()
+        waste_items = []
+        
+        # Get all items
+        items = db.query(Item).all()
+        
+        for item in items:
+            # Skip items already marked as waste
+            if item.is_waste:
+                waste_items.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "reason": "Already marked as waste"
+                })
+                continue
+                
+            # Check for expired items
+            if item.expiry_date and item.expiry_date < today:
+                item.is_waste = True
+                waste_items.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "reason": f"Expired on {item.expiry_date.isoformat()}"
+                })
+                
+            # Check for depleted items (usage limit reached)
+            elif item.usage_limit and item.usage_count >= item.usage_limit:
+                item.is_waste = True
+                waste_items.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "reason": f"Usage limit reached ({item.usage_count}/{item.usage_limit})"
+                })
+        
+        # Save changes
+        db.commit()
+        
+        # Log the waste identification
+        log_action(db, "waste_identification", None, None, "system", 
+                  f"Identified {len(waste_items)} waste items")
+        
+        return {
+            "success": True,
+            "message": f"Identified {len(waste_items)} waste items",
+            "waste_items": waste_items
+        }
+    
+    except Exception as e:
+        logger.error(f"Error identifying waste: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error identifying waste: {str(e)}"
+        )
+
+# Generate a plan for returning waste items
+@app.get("/waste/return-plan")
+async def generate_waste_return_plan(
+    target_zone: str = Query("W", description="The zone where waste should be moved to"),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Get all waste items that are placed in containers
+        waste_items = db.query(Item).filter(
+            Item.is_waste == True,
+            Item.is_placed == True
+        ).all()
+        
+        # Get all containers in the target zone
+        waste_containers = db.query(Container).filter(
+            Container.zone == target_zone
+        ).all()
+        
+        if not waste_containers:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No containers found in zone '{target_zone}'"
+            )
+        
+        # Prepare the return plan
+        return_plan = []
+        total_waste_mass = 0
+        
+        # Assign each waste item to a waste container
+        current_container_index = 0
+        
+        for item in waste_items:
+            # Get the current waste item container
+            source_container = db.query(Container).filter(Container.id == item.container_id).first()
+            
+            # Get the target waste container
+            target_container = waste_containers[current_container_index]
+            
+            # Create movement instruction
+            return_plan.append({
+                "item_id": item.id,
+                "item_name": item.name,
+                "weight": item.weight,
+                "source_container": {
+                    "id": source_container.id,
+                    "zone": source_container.zone
+                },
+                "target_container": {
+                    "id": target_container.id,
+                    "zone": target_container.zone
+                }
+            })
+            
+            total_waste_mass += item.weight
+            
+            # Move to next waste container if available (round-robin)
+            current_container_index = (current_container_index + 1) % len(waste_containers)
+        
+        # Log the waste return plan
+        log_action(db, "waste_return_plan", None, None, "system", 
+                  f"Generated return plan for {len(return_plan)} waste items, total mass: {total_waste_mass} kg")
+        
+        return {
+            "success": True,
+            "message": f"Generated waste return plan for {len(return_plan)} items",
+            "total_waste_mass": total_waste_mass,
+            "target_zone": target_zone,
+            "waste_containers": [c.id for c in waste_containers],
+            "return_plan": return_plan
+        }
+    
+    except HTTPException:
+        raise
+    
+    except Exception as e:
+        logger.error(f"Error generating waste return plan: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating waste return plan: {str(e)}"
+        )
+
+# Get action logs
+@app.get("/logs")
+async def get_logs(
+    action: Optional[str] = None,
+    item_id: Optional[str] = None,
+    container_id: Optional[str] = None,
+    user: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Start with all logs
+        query = db.query(LogEntry)
+        
+        # Apply filters
+        if action:
+            query = query.filter(LogEntry.action == action)
+            
+        if item_id:
+            query = query.filter(LogEntry.item_id == item_id)
+            
+        if container_id:
+            query = query.filter(LogEntry.container_id == container_id)
+            
+        if user:
+            query = query.filter(LogEntry.user == user)
+            
+        if from_date:
+            try:
+                from_date_obj = datetime.strptime(from_date, '%Y-%m-%d').date()
+                query = query.filter(LogEntry.timestamp >= from_date_obj)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid from_date format. Use YYYY-MM-DD"
+                )
+                
+        if to_date:
+            try:
+                to_date_obj = datetime.strptime(to_date, '%Y-%m-%d').date()
+                query = query.filter(LogEntry.timestamp <= to_date_obj)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid to_date format. Use YYYY-MM-DD"
+                )
+        
+        # Order by timestamp and limit results
+        logs = query.order_by(LogEntry.timestamp.desc(), LogEntry.id.desc()).limit(limit).all()
+        
+        # Convert to response model
+        log_entries = [LogEntryResponse.from_orm(log) for log in logs]
+        
+        return {
+            "success": True,
+            "count": len(log_entries),
+            "logs": log_entries
+        }
+    
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"Error retrieving logs: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving logs: {str(e)}"
         )
 
 # Run the application

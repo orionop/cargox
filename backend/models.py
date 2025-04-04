@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import date
+from datetime import date, datetime
 from database import Base
 
 # SQLAlchemy Models
@@ -155,4 +155,29 @@ class SimulationResponse(BaseModel):
     days_simulated: int = 0
     items_used: List[str] = []
     items_expired: List[str] = []
-    new_waste_items: List[str] = [] 
+    new_waste_items: List[str] = []
+
+# Log entry model
+class LogEntry(Base):
+    __tablename__ = "log_entries"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    timestamp = Column(Date, default=datetime.now().date)
+    action = Column(String)
+    item_id = Column(String, nullable=True)
+    container_id = Column(String, nullable=True)
+    user = Column(String, default="system")
+    details = Column(String, nullable=True)
+    
+# Pydantic model for log entries
+class LogEntryResponse(BaseModel):
+    id: int
+    timestamp: date
+    action: str
+    item_id: Optional[str] = None
+    container_id: Optional[str] = None
+    user: str = "system"
+    details: Optional[str] = None
+    
+    class Config:
+        from_attributes = True 

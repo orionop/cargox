@@ -3,7 +3,7 @@ import io
 from typing import List, Dict, Any, Set
 from sqlalchemy.orm import Session
 from loguru import logger
-from models import Container, Item
+from models import Container, Item, LogEntry
 from datetime import datetime
 import logging
 
@@ -70,38 +70,85 @@ def parse_items_csv(contents: bytes) -> List[Dict[str, Any]]:
         items = []
         for row in reader:
             try:
-                item = {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'width': float(row['width']),
-                    'height': float(row['height']),
-                    'depth': float(row['depth']),
-                    'weight': float(row['weight']),
-                }
+                # Debug info
+                logger.info(f"Processing item row: {row}")
                 
-                # Add priority if present
-                if 'priority' in row:
-                    item['priority'] = int(row['priority'])
-                
-                # Add preferred zone if present
-                if 'preferred_zone' in row:
-                    item['preferred_zone'] = row['preferred_zone']
-                
-                # Add expiry date if present and valid
-                if 'expiry_date' in row and row['expiry_date'] and row['expiry_date'].lower() != 'n/a':
-                    try:
-                        item['expiry_date'] = datetime.strptime(row['expiry_date'], '%Y-%m-%d').date()
-                    except ValueError:
-                        logger.warning(f"Invalid expiry date format for item {row['id']}: {row['expiry_date']}")
-                
-                # Add usage limit if present
-                if 'usage_limit' in row and row['usage_limit']:
-                    try:
-                        item['usage_limit'] = int(row['usage_limit'])
-                    except ValueError:
-                        logger.warning(f"Invalid usage_limit for item {row['id']}: {row['usage_limit']}")
-                
-                items.append(item)
+                # Handle new format with item_id, width_cm, depth_cm, height_cm, mass_kg
+                if all(key in row and row[key] for key in ['item_id', 'name', 'width_cm', 'depth_cm', 'height_cm', 'mass_kg']):
+                    item = {
+                        'id': row['item_id'],
+                        'name': row['name'],
+                        'width': float(row['width_cm']) / 100,  # Convert cm to meters
+                        'height': float(row['height_cm']) / 100,  # Convert cm to meters
+                        'depth': float(row['depth_cm']) / 100,  # Convert cm to meters
+                        'weight': float(row['mass_kg']),
+                    }
+                    
+                    # Add priority if present
+                    if 'priority' in row and row['priority']:
+                        try:
+                            item['priority'] = int(row['priority'])
+                        except ValueError:
+                            logger.warning(f"Invalid priority for item {row['item_id']}: {row['priority']}")
+                    
+                    # Add preferred zone if present
+                    if 'preferred_zone' in row and row['preferred_zone']:
+                        item['preferred_zone'] = row['preferred_zone']
+                    
+                    # Add expiry date if present and valid
+                    if 'expiry_date' in row and row['expiry_date'] and row['expiry_date'].lower() != 'n/a':
+                        try:
+                            item['expiry_date'] = datetime.strptime(row['expiry_date'], '%Y-%m-%d').date()
+                        except ValueError:
+                            logger.warning(f"Invalid expiry date format for item {row['item_id']}: {row['expiry_date']}")
+                    
+                    # Add usage limit if present
+                    if 'usage_limit' in row and row['usage_limit']:
+                        try:
+                            item['usage_limit'] = int(row['usage_limit'])
+                        except ValueError:
+                            logger.warning(f"Invalid usage_limit for item {row['item_id']}: {row['usage_limit']}")
+                    
+                    items.append(item)
+                # Handle standard format with id, width, height, depth, weight
+                elif all(key in row and row[key] for key in ['id', 'name', 'width', 'height', 'depth']):
+                    item = {
+                        'id': row['id'],
+                        'name': row['name'],
+                        'width': float(row['width']),
+                        'height': float(row['height']),
+                        'depth': float(row['depth']),
+                        'weight': float(row['weight']) if 'weight' in row and row['weight'] else 1.0,
+                    }
+                    
+                    # Add priority if present
+                    if 'priority' in row and row['priority']:
+                        try:
+                            item['priority'] = int(row['priority'])
+                        except ValueError:
+                            logger.warning(f"Invalid priority for item {row['id']}: {row['priority']}")
+                    
+                    # Add preferred zone if present
+                    if 'preferred_zone' in row and row['preferred_zone']:
+                        item['preferred_zone'] = row['preferred_zone']
+                    
+                    # Add expiry date if present and valid
+                    if 'expiry_date' in row and row['expiry_date'] and row['expiry_date'].lower() != 'n/a':
+                        try:
+                            item['expiry_date'] = datetime.strptime(row['expiry_date'], '%Y-%m-%d').date()
+                        except ValueError:
+                            logger.warning(f"Invalid expiry date format for item {row['id']}: {row['expiry_date']}")
+                    
+                    # Add usage limit if present
+                    if 'usage_limit' in row and row['usage_limit']:
+                        try:
+                            item['usage_limit'] = int(row['usage_limit'])
+                        except ValueError:
+                            logger.warning(f"Invalid usage_limit for item {row['id']}: {row['usage_limit']}")
+                    
+                    items.append(item)
+                else:
+                    logger.warning(f"Skipping row with unknown format: {row}")
             except (KeyError, ValueError) as e:
                 logger.warning(f"Skipping row due to error: {e} - {row}")
                 continue
@@ -168,5 +215,20 @@ def clear_placements(db: Session) -> None:
 
 def log_action(db: Session, action: str, item_id: str = None, container_id: str = None, user: str = "system", details: str = None):
     """Log actions performed on items and containers."""
-    logger.info(f"ACTION: {action} | ITEM: {item_id} | CONTAINER: {container_id} | USER: {user} | DETAILS: {details}")
-    # Note: In a production system, you would store this in a dedicated log table in the database 
+    try:
+        # Log to console
+        logger.info(f"ACTION: {action} | ITEM: {item_id} | CONTAINER: {container_id} | USER: {user} | DETAILS: {details}")
+        
+        # Create log entry in database
+        log_entry = LogEntry(
+            action=action,
+            item_id=item_id,
+            container_id=container_id,
+            user=user,
+            details=details
+        )
+        db.add(log_entry)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error logging action: {str(e)}")
+        # Don't raise exception to avoid disrupting main functionality 
