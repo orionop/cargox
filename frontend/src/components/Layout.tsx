@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Boxes, Upload, Search, Home, Activity, BarChart3, Calendar, Trash2, ClipboardList } from 'lucide-react';
+import { Upload, Search, Home, Activity, BarChart3, Calendar, Trash2, ClipboardList } from 'lucide-react';
+import logoImage from '../assets/logo.png';
 
 const Layout = () => {
   const location = useLocation();
@@ -37,9 +38,10 @@ const Layout = () => {
       {/* Sidebar */}
       <div className="w-16 md:w-64 bg-gray-950 border-r border-green-600/30 flex flex-col fixed top-12 bottom-0 left-0 z-10">
         {/* Top Logo */}
-        <Link to="/" className="flex items-center justify-center md:justify-start px-4 py-6 border-b border-green-600/30">
-          <Boxes className="h-8 w-8 text-green-500" />
-          <span className="hidden md:block font-bold text-xl ml-3 text-green-500 tracking-widest">CARGO-X</span>
+        <Link to="/" className="flex items-center justify-center px-4 py-4 border-b border-green-600/30">
+          <div className="w-full flex justify-center items-center h-12">
+            <img src={logoImage} alt="CargoX Logo" className="h-full w-auto object-contain" />
+          </div>
         </Link>
         
         {/* Nav Links */}
@@ -76,7 +78,16 @@ const Layout = () => {
                 : 'text-gray-400 hover:text-green-400 hover:bg-green-900/10'
             }`}
           >
-            <Boxes className="h-5 w-5 md:mr-3" />
+            <div className="h-5 w-5 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 8V16C21 18.7614 18.7614 21 16 21H8C5.23858 21 3 18.7614 3 16V8C3 5.23858 5.23858 3 8 3H16C18.7614 3 21 5.23858 21 8Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M9 13.5V9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15 13.5V9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M9 3V8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M15 3V8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M21 9H3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
             <span className="hidden md:block text-sm">_CONTAINERS</span>
           </Link>
           
