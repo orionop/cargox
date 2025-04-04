@@ -32,6 +32,7 @@ The application now uses a simplified architecture with two main components:
 
 1. Run the development server:
    ```
+   cd frontend
    npm run dev
    ```
 
