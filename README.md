@@ -18,6 +18,13 @@ The application now uses a simplified architecture with two main components:
 
 ## Getting Started
 
+### Clone the project and navigate to your workspace directory
+```
+   git clone https://github.com/orionop/CargoX.git
+   cd CargoX
+   ```
+
+
 ### Starting the Backend (Docker)
 
 1. Start the backend services:
@@ -33,7 +40,7 @@ The application now uses a simplified architecture with two main components:
 1. Run the development server:
    ```
    cd frontend
-   npm run dev
+   npm run dev -- --open
    ```
 
 2. The frontend will be available at:
