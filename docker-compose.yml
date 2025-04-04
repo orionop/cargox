@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/logs:/app/logs
+    depends_on:
+      - postgres
+    environment:
+      - SQLALCHEMY_DATABASE_URL=postgresql://postgres:postgres@postgres/cargox
+    networks:
+      - cargox-network
+
+  postgres:
+    image: postgres:14
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=cargox
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - cargox-network
+      
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - cargox-network
+
+networks:
+  cargox-network:
+    driver: bridge
+
+volumes:
+  postgres-data: 

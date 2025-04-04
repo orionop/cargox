@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CargoX API Integration Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #0066cc;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background-color: #0055aa;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 20px;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            max-height: 300px;
+        }
+        .container-display {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>CargoX API Integration Example</h1>
+    
+    <p>This page demonstrates how to integrate with the CargoX API. Include the api.js file in your project and use the exported functions.</p>
+    
+    <div class="input-group">
+        <label for="container-file">Import Containers CSV:</label>
+        <input type="file" id="container-file" accept=".csv">
+        <button id="upload-containers">Upload Containers</button>
+    </div>
+    
+    <div class="input-group">
+        <label for="item-file">Import Items CSV:</label>
+        <input type="file" id="item-file" accept=".csv">
+        <button id="upload-items">Upload Items</button>
+    </div>
+    
+    <div class="input-group">
+        <button id="run-placement">Run Placement Algorithm</button>
+    </div>
+    
+    <div class="input-group">
+        <label for="item-id">Retrieve Item:</label>
+        <input type="text" id="item-id" placeholder="Enter item ID (e.g. I001)">
+        <button id="retrieve-item">Get Retrieval Path</button>
+    </div>
+    
+    <div class="status" id="status">Ready</div>
+    
+    <div class="container-display">
+        <h2>API Response:</h2>
+        <pre id="response-data"></pre>
+    </div>
+    
+    <script type="module">
+        import { importContainers, importItems, placeItems, retrieveItem, getContainers } from './api.js';
+        
+        const containerFileInput = document.getElementById('container-file');
+        const itemFileInput = document.getElementById('item-file');
+        const itemIdInput = document.getElementById('item-id');
+        const uploadContainersBtn = document.getElementById('upload-containers');
+        const uploadItemsBtn = document.getElementById('upload-items');
+        const runPlacementBtn = document.getElementById('run-placement');
+        const retrieveItemBtn = document.getElementById('retrieve-item');
+        const statusDiv = document.getElementById('status');
+        const responseDataPre = document.getElementById('response-data');
+        
+        function showStatus(message, isError = false) {
+            statusDiv.textContent = message;
+            statusDiv.style.color = isError ? 'red' : 'green';
+        }
+        
+        function displayResponse(data) {
+            responseDataPre.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        uploadContainersBtn.addEventListener('click', async () => {
+            if (!containerFileInput.files || containerFileInput.files.length === 0) {
+                showStatus('Please select a containers CSV file', true);
+                return;
+            }
+            
+            const file = containerFileInput.files[0];
+            
+            try {
+                showStatus('Uploading containers...');
+                const result = await importContainers(file);
+                displayResponse(result);
+                
+                if (result.success) {
+                    showStatus(`Successfully imported ${result.containers_count} containers`);
+                } else {
+                    showStatus(`Failed to import containers: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`Error uploading containers: ${error.message}`, true);
+            }
+        });
+        
+        uploadItemsBtn.addEventListener('click', async () => {
+            if (!itemFileInput.files || itemFileInput.files.length === 0) {
+                showStatus('Please select an items CSV file', true);
+                return;
+            }
+            
+            const file = itemFileInput.files[0];
+            
+            try {
+                showStatus('Uploading items...');
+                const result = await importItems(file);
+                displayResponse(result);
+                
+                if (result.success) {
+                    showStatus(`Successfully imported ${result.items_count} items`);
+                } else {
+                    showStatus(`Failed to import items: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`Error uploading items: ${error.message}`, true);
+            }
+        });
+        
+        runPlacementBtn.addEventListener('click', async () => {
+            try {
+                showStatus('Running placement algorithm...');
+                const result = await placeItems();
+                displayResponse(result);
+                
+                if (result.success) {
+                    showStatus(result.message);
+                } else {
+                    showStatus(`Placement failed: ${result.message}`, true);
+                }
+            } catch (error) {
+                showStatus(`Error running placement algorithm: ${error.message}`, true);
+            }
+        });
+        
+        retrieveItemBtn.addEventListener('click', async () => {
+            const itemId = itemIdInput.value.trim();
+            if (!itemId) {
+                showStatus('Please enter an item ID', true);
+                return;
+            }
+            
+            try {
+                showStatus(`Retrieving path for item ${itemId}...`);
+                const result = await retrieveItem(itemId);
+                displayResponse(result);
+                
+                if (result.found) {
+                    showStatus(`Found retrieval path for item ${itemId}`);
+                } else {
+                    showStatus(`Item ${itemId} not found`, true);
+                }
+            } catch (error) {
+                showStatus(`Error retrieving item: ${error.message}`, true);
+            }
+        });
+    </script>
+</body>
+</html> 

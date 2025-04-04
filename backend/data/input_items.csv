@@ -1,0 +1,16 @@
+id,name,width,height,depth,weight
+I001,Electronics Box,2.0,1.5,3.0,5.0
+I002,Medical Supplies,3.0,2.0,2.5,4.0
+I003,Food Container,4.0,2.0,3.0,6.0
+I004,Scientific Equipment,2.5,1.8,2.2,3.5
+I005,Oxygen Regulator,1.5,1.2,1.8,2.0
+I006,Water Filter,2.8,2.0,1.5,3.2
+I007,Emergency Kit,2.0,1.0,1.5,1.8
+I008,Battery Pack,1.5,1.0,1.0,4.5
+I009,Communication Device,1.0,0.8,1.2,1.0
+I010,Tool Kit,3.5,2.0,2.5,5.5
+I011,Experiment Container,4.5,3.0,3.5,7.0
+I012,Waste Management Unit,3.0,2.5,2.8,4.5
+I013,Spacesuit Component,3.2,1.8,2.2,3.0
+I014,Propellant Canister,1.8,1.8,2.5,6.0
+I015,Navigation Hardware,2.0,1.5,1.5,2.5 

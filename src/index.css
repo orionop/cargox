@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes twinkle {
+  0% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+
+/* ISRO-inspired font setup */
+@layer base {
+  html {
+    font-family: 'Space Mono', monospace;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Mono', monospace;
+    letter-spacing: -0.02em;
+  }
+  
+  p, span, button, input, label, a {
+    font-family: 'Space Mono', monospace;
+  }
+}
+
+/* ISRO-inspired colors and utilities */
+@layer utilities {
+  .isro-blue {
+    color: #0B3D91;
+  }
+  
+  .isro-red {
+    color: #FC3D21;
+  }
+  
+  .terminal-text {
+    font-family: 'Space Mono', monospace;
+    letter-spacing: -0.02em;
+  }
+  
+  .grid-bg {
+    background-image: 
+      linear-gradient(rgba(0, 38, 77, 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 38, 77, 0.3) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+}
