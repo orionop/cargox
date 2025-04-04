@@ -5,9 +5,9 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
-      - ./backend/logs:/app/logs
+    # volumes:
+    #   - ./backend:/app
+    #   - ./backend/logs:/app/logs
     depends_on:
       - postgres
     environment:
