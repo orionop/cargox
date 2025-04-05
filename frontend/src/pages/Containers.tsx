@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { fetchContainers } from '../api';
-import { Loader, Box, Layers, AlertTriangle, Info } from 'lucide-react';
+import { fetchContainers, exportArrangement } from '../api';
+import { Loader, Box, Layers, AlertTriangle, Info, Download } from 'lucide-react';
 
 interface ContainerItem {
   id: string;
@@ -42,6 +42,7 @@ const ContainersPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const getContainersData = async () => {
@@ -86,6 +87,64 @@ const ContainersPage = () => {
     return containers.find(c => c.id === selectedContainer);
   };
 
+  const handleDownloadArrangement = async () => {
+    try {
+      setDownloading(true);
+      
+      // We already have the containers data loaded in the component state
+      if (containers.length === 0) {
+        setError('No containers available to export');
+        return;
+      }
+      
+      // Format the data as CSV
+      let csvContent = 'Container ID,Item ID,Name,Width,Height,Depth,Weight,Position X,Position Y,Position Z\n';
+      
+      // Loop through each container and its items
+      containers.forEach(container => {
+        // If container has no items, add a row with just the container ID
+        if (container.items.length === 0) {
+          csvContent += `${container.id},,,,,,,,\n`;
+        } else {
+          // For containers with items, add a row for each item
+          container.items.forEach(item => {
+            csvContent += `${container.id},${item.id},${item.name},${item.width},${item.height},${item.depth},${item.weight},`;
+            
+            // Add position coordinates if available
+            if (item.position) {
+              csvContent += `${item.position.x},${item.position.y},${item.position.z}`;
+            } else {
+              csvContent += ',,,'; // Empty coordinates
+            }
+            
+            csvContent += '\n';
+          });
+        }
+      });
+      
+      // Create a blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      
+      // Set download attributes
+      link.setAttribute('href', url);
+      link.setAttribute('download', `cargo_arrangement_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (err) {
+      console.error('Error generating arrangement CSV:', err);
+      setError('Failed to generate arrangement CSV');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px] text-center">
@@ -110,8 +169,23 @@ const ContainersPage = () => {
 
   return (
     <div className="w-full max-w-6xl mx-auto">
-      <div className="text-green-500 text-xl mb-4 font-bold">
-        # CARGO CONTAINER FLEET <span className="text-xs text-green-600">[CONTAINERS: {containers.length}]</span>
+      <div className="flex justify-between items-center mb-4">
+        <div className="text-green-500 text-xl font-bold">
+          # CARGO CONTAINER FLEET <span className="text-xs text-green-600">[CONTAINERS: {containers.length}]</span>
+        </div>
+        
+        <button 
+          onClick={handleDownloadArrangement}
+          disabled={downloading || containers.length === 0}
+          className={`flex items-center px-3 py-1.5 rounded text-sm ${
+            containers.length === 0 
+              ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed' 
+              : 'bg-green-900/30 text-green-400 hover:bg-green-900/50 border border-green-500/30'
+          }`}
+        >
+          <Download className="h-4 w-4 mr-2" />
+          {downloading ? 'DOWNLOADING...' : 'EXPORT CONTAINER ITEMS'}
+        </button>
       </div>
 
       {containers.length === 0 ? (
