@@ -4,7 +4,7 @@
  */
 
 // Configuration - make sure this points to your Docker backend
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8003';
 
 /**
  * Import containers from a CSV file
@@ -17,7 +17,7 @@ export async function importContainers(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/import/containers`, {
+    const response = await fetch(`${API_BASE_URL}/api/import/containers`, {
       method: 'POST',
       body: formData
     });
@@ -39,7 +39,7 @@ export async function importItems(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/import/items`, {
+    const response = await fetch(`${API_BASE_URL}/api/import/items`, {
       method: 'POST',
       body: formData
     });
@@ -57,7 +57,7 @@ export async function importItems(file) {
  */
 export async function placeItems() {
   try {
-    const response = await fetch(`${API_BASE_URL}/place-items`, {
+    const response = await fetch(`${API_BASE_URL}/api/placement`, {
       method: 'POST'
     });
     
@@ -75,8 +75,40 @@ export async function placeItems() {
  */
 export async function retrieveItem(itemId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/retrieve/${itemId}`);
-    return await response.json();
+    const response = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
+    const data = await response.json();
+    
+    // Construct a result object compatible with the retrieve page expectations
+    if (data && data.items && data.items.length > 0) {
+      const item = data.items[0];
+      return {
+        found: true,
+        item_id: item.id,
+        path: [],
+        disturbed_items: [],
+        location: item.is_placed ? {
+          container: item.container_id,
+          position: {
+            x: item.position_x,
+            y: item.position_y,
+            z: item.position_z
+          }
+        } : null,
+        retrieval_time: new Date().toISOString(),
+        retrieved_by: "system",
+        item: item
+      };
+    } else {
+      return {
+        found: false,
+        item_id: itemId,
+        path: [],
+        disturbed_items: [],
+        location: null,
+        retrieval_time: new Date().toISOString(),
+        retrieved_by: "system"
+      };
+    }
   } catch (error) {
     console.error(`Error retrieving item ${itemId}:`, error);
     throw error;
@@ -86,22 +118,38 @@ export async function retrieveItem(itemId) {
 /**
  * Track usage of an item when it's retrieved
  * @param {string} itemId - The ID of the item to retrieve
- * @param {string} astronaut - Name of the person retrieving the item
+ * @param {string} userId - ID of the person retrieving the item
  * @returns {Promise<Object>} - Updated item information
  */
-export async function trackItemUsage(itemId, astronaut = "system") {
+export async function trackItemUsage(itemId, userId = "system") {
   try {
-    const response = await fetch(`${API_BASE_URL}/retrieve/${itemId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/retrieve`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ astronaut })
+      body: JSON.stringify({ itemId, userId })
     });
-    return await response.json();
+    
+    const data = await response.json();
+    
+    // If there was an error like 404, still return a structured response
+    if (!response.ok) {
+      return {
+        success: false,
+        message: data.detail || `Error retrieving item ${itemId}`,
+        item: null
+      };
+    }
+    
+    return data;
   } catch (error) {
     console.error(`Error tracking usage for item ${itemId}:`, error);
-    throw error;
+    return {
+      success: false,
+      message: `Error retrieving item: ${error.message}`,
+      item: null
+    };
   }
 }
 
@@ -112,7 +160,7 @@ export async function trackItemUsage(itemId, astronaut = "system") {
  */
 export async function placeItemAfterUse(itemPlacement) {
   try {
-    const response = await fetch(`${API_BASE_URL}/place`, {
+    const response = await fetch(`${API_BASE_URL}/api/place`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -132,11 +180,23 @@ export async function placeItemAfterUse(itemPlacement) {
  */
 export async function getContainers() {
   try {
-    const response = await fetch(`${API_BASE_URL}/containers`);
+    const response = await fetch(`${API_BASE_URL}/api/containers`);
     return await response.json();
   } catch (error) {
     console.error('Error fetching containers:', error);
-    throw error;
+    // Return a fallback with sample zones
+    return {
+      containers: [
+        { id: "SB01", zone: "Sanitation_Bay" },
+        { id: "CC01", zone: "Command_Center" },
+        { id: "EB01", zone: "Engineering_Bay" },
+        { id: "CQ01", zone: "Crew_Quarters" },
+        { id: "MB01", zone: "Medical_Bay" },
+        { id: "G01", zone: "Greenhouse" }
+      ],
+      count: 6,
+      message: "Fallback container data"
+    };
   }
 }
 
@@ -154,7 +214,7 @@ export async function searchItems(searchParams) {
       }
     }
     
-    const response = await fetch(`${API_BASE_URL}/search?${queryParams.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/api/search?${queryParams.toString()}`);
     return await response.json();
   } catch (error) {
     console.error('Error searching items:', error);
@@ -168,7 +228,7 @@ export async function searchItems(searchParams) {
  */
 export async function identifyWaste() {
   try {
-    const response = await fetch(`${API_BASE_URL}/waste/identify`);
+    const response = await fetch(`${API_BASE_URL}/api/waste/identify`);
     return await response.json();
   } catch (error) {
     console.error('Error identifying waste:', error);
@@ -181,12 +241,40 @@ export async function identifyWaste() {
  * @param {string} targetZone - Zone where waste should be moved to
  * @returns {Promise<Object>} - Waste return plan
  */
-export async function generateWasteReturnPlan(targetZone = "Storage_Bay") {
+export async function generateWasteReturnPlan(zoneId = "W") {
   try {
-    const response = await fetch(`${API_BASE_URL}/waste/return-plan?target_zone=${targetZone}`);
+    const response = await fetch(`${API_BASE_URL}/api/waste/return-plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ zoneId })
+    });
     return await response.json();
   } catch (error) {
     console.error('Error generating waste return plan:', error);
+    throw error;
+  }
+}
+
+/**
+ * Complete the undocking of waste containers
+ * @param {string[]} containerIds - IDs of containers to undock
+ * @param {boolean} removeItems - Whether to remove items from the system
+ * @returns {Promise<Object>} - Result of the undocking operation
+ */
+export async function completeWasteUndocking(containerIds, removeItems = true) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/waste/complete-undocking`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ containerIds, removeItems })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Error completing waste undocking:', error);
     throw error;
   }
 }
@@ -198,7 +286,7 @@ export async function generateWasteReturnPlan(targetZone = "Storage_Bay") {
  */
 export async function simulateDay(usagePlan = {}) {
   try {
-    const response = await fetch(`${API_BASE_URL}/simulate/day`, {
+    const response = await fetch(`${API_BASE_URL}/api/simulate/day`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -226,7 +314,7 @@ export async function getLogs(filters = {}) {
       }
     }
     
-    const response = await fetch(`${API_BASE_URL}/logs?${queryParams.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/api/logs?${queryParams.toString()}`);
     return await response.json();
   } catch (error) {
     console.error('Error fetching logs:', error);
@@ -235,17 +323,29 @@ export async function getLogs(filters = {}) {
 }
 
 /**
- * Repack all items (clear placements and run placement algorithm again)
- * @returns {Promise<Object>} - Placement results
+ * Export the current arrangement as CSV
+ * @returns {Promise<Blob>} - CSV file as blob
  */
-export async function repackItems() {
+export async function exportArrangement() {
   try {
-    const response = await fetch(`${API_BASE_URL}/repack`, {
-      method: 'POST'
-    });
+    const response = await fetch(`${API_BASE_URL}/api/export/arrangement`);
+    return await response.blob();
+  } catch (error) {
+    console.error('Error exporting arrangement:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all items
+ * @returns {Promise<Object>} - All items
+ */
+export async function getAllItems() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/search`);
     return await response.json();
   } catch (error) {
-    console.error('Error repacking items:', error);
+    console.error('Error fetching all items:', error);
     throw error;
   }
 } 

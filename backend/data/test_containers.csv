@@ -1,0 +1,16 @@
+id,width,height,depth,capacity,container_type,zone
+SB01,25.0,200.0,42.5,3,storage,Sanitation_Bay
+SB02,100.0,200.0,85.0,5,storage,Sanitation_Bay
+SB03,100.0,200.0,85.0,5,storage,Sanitation_Bay
+SB04,200.0,200.0,85.0,6,storage,Sanitation_Bay
+CC01,100.0,200.0,85.0,5,storage,Command_Center
+CC02,100.0,200.0,170.0,7,storage,Command_Center
+CC03,100.0,200.0,85.0,5,storage,Command_Center
+EB01,100.0,50.0,85.0,3,storage,Engineering_Bay
+EB02,25.0,200.0,85.0,4,storage,Engineering_Bay
+PB01,100.0,200.0,85.0,5,storage,Power_Bay
+PB02,200.0,100.0,21.25,3,storage,Power_Bay
+PB03,100.0,200.0,85.0,5,storage,Power_Bay
+L01,100.0,400.0,21.25,6,storage,Lab
+L02,100.0,200.0,85.0,5,storage,Lab
+L03,100.0,200.0,85.0,5,storage,Lab 

@@ -2,12 +2,12 @@ version: '3.8'
 
 services:
   backend:
-    build: ./backend
+    build: .
     ports:
-      - "8000:8000"
-    # volumes:
-    #   - ./backend:/app
-    #   - ./backend/logs:/app/logs
+      - "8003:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/logs:/app/logs
     depends_on:
       - postgres
     environment:

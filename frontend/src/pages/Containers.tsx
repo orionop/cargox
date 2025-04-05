@@ -2,6 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { fetchContainers } from '../api';
 import { Loader, Box, Layers, AlertTriangle, Info } from 'lucide-react';
 
+interface ContainerItem {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  depth: number;
+  weight: number;
+  is_placed: boolean;
+  container_id: string;
+  position?: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  priority: number;
+  preferred_zone: string | null;
+  is_waste: boolean;
+}
+
 interface Container {
   id: string;
   width: number;
@@ -10,24 +29,12 @@ interface Container {
   capacity: number;
   container_type: string;
   zone: string | null;
-  items: Array<{
-    id: string;
-    name: string;
-    width: number;
-    height: number;
-    depth: number;
-    weight: number;
-    is_placed: boolean;
-    container_id: string;
-    position?: {
-      x: number;
-      y: number;
-      z: number;
-    };
-    priority: number;
-    preferred_zone: string | null;
-    is_waste: boolean;
-  }>;
+  items: ContainerItem[];
+}
+
+// Define a type for the raw container data from the API
+interface ApiContainer extends Omit<Container, 'items'> {
+  items?: ContainerItem[];
 }
 
 const ContainersPage = () => {
@@ -41,16 +48,28 @@ const ContainersPage = () => {
       try {
         console.log('Fetching containers...');
         // Try to access API directly first for debugging
-        const checkResponse = await fetch('http://localhost:8000/containers');
+        const checkResponse = await fetch('http://localhost:8003/api/containers');
         const checkData = await checkResponse.json();
         console.log('Direct fetch response:', checkData);
         
         // Now try with the API function
         const response = await fetchContainers();
         console.log('Container data via API:', response.data);
-        setContainers(response.data);
-        if (response.data.length > 0) {
-          setSelectedContainer(response.data[0].id);
+        
+        // Process containers to ensure items array exists and only includes placed items
+        const containersWithItems = ((response.data?.containers || []) as ApiContainer[]).map((container) => {
+          // Filter out items that aren't actually placed (is_placed=false)
+          const placedItems = container.items?.filter(item => item.is_placed === true) || [];
+          return {
+            ...container,
+            // Ensure items is always an array
+            items: placedItems
+          };
+        });
+        
+        setContainers(containersWithItems);
+        if (containersWithItems.length > 0) {
+          setSelectedContainer(containersWithItems[0].id);
         }
       } catch (err) {
         console.error('Error fetching containers:', err);

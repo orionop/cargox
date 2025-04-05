@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Boxes, Upload, Search, ArrowRight, Play } from 'lucide-react';
+import { Boxes, Upload, Search, ArrowRight, Play, Database, ArrowRightCircle, Trash } from 'lucide-react';
 import { runPlacementAlgorithm } from '../api';
 import toast from 'react-hot-toast';
 
@@ -28,6 +28,7 @@ const TypingAnimation = ({ text, delay = 50 }: { text: string; delay?: number })
 
 const Home = () => {
   const [loading, setLoading] = useState(false);
+  const [truncateLoading, setTruncateLoading] = useState(false);
   
   const handleRunAlgorithm = async () => {
     setLoading(true);
@@ -47,6 +48,34 @@ const Home = () => {
       toast.error('Failed to run placement algorithm', { id: 'placement' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTruncateDatabase = async () => {
+    if (!confirm('Are you sure you want to truncate the entire database? This will delete all containers, items, and logs.')) {
+      return;
+    }
+    
+    setTruncateLoading(true);
+    toast.loading('Truncating database...', { id: 'truncate' });
+    
+    try {
+      const response = await fetch('http://localhost:8003/api/truncate-database', {
+        method: 'POST',
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Database truncated successfully!', { id: 'truncate' });
+      } else {
+        toast.error(`Truncation failed: ${result.message || 'Unknown error'}`, { id: 'truncate' });
+      }
+    } catch (error) {
+      console.error('Error truncating database:', error);
+      toast.error('Failed to truncate database', { id: 'truncate' });
+    } finally {
+      setTruncateLoading(false);
     }
   };
 
@@ -103,18 +132,33 @@ const Home = () => {
               optimized container management, and rapid cargo tracking in aerospace environments.
             </div>
             
-            <button 
-              onClick={handleRunAlgorithm}
-              disabled={loading}
-              className={`flex items-center text-sm px-4 py-2 rounded-md ${
-                loading 
-                  ? 'bg-gray-800 text-gray-400 cursor-wait' 
-                  : 'bg-green-800/50 text-green-400 hover:bg-green-700/50'
-              } transition-colors`}
-            >
-              <Play className="h-4 w-4 mr-2" />
-              {loading ? 'Running Algorithm...' : 'Run Placement Algorithm'}
-            </button>
+            <div className="flex flex-wrap gap-4">
+              <button 
+                onClick={handleRunAlgorithm}
+                disabled={loading}
+                className={`flex items-center text-sm px-4 py-2 rounded-md ${
+                  loading 
+                    ? 'bg-gray-800 text-gray-400 cursor-wait' 
+                    : 'bg-green-800/50 text-green-400 hover:bg-green-700/50'
+                } transition-colors`}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {loading ? 'Running Algorithm...' : 'Run Placement Algorithm'}
+              </button>
+              
+              <button 
+                onClick={handleTruncateDatabase}
+                disabled={truncateLoading}
+                className={`flex items-center text-sm px-4 py-2 rounded-md ${
+                  truncateLoading 
+                    ? 'bg-gray-800 text-gray-400 cursor-wait' 
+                    : 'bg-red-900/50 text-red-400 hover:bg-red-800/50'
+                } transition-colors`}
+              >
+                <Trash className="h-4 w-4 mr-2" />
+                {truncateLoading ? 'Truncating...' : 'Reset Database'}
+              </button>
+            </div>
           </div>
         </div>
 

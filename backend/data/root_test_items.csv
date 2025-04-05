@@ -1,0 +1,2 @@
+id,name,width,height,depth,weight,priority,preferred_zone,expiry_date,usage_limit,usage_count
+test002,Test Item,0.1,0.2,0.3,5,1,Storage_Bay,2026-01-01,10,0

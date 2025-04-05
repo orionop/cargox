@@ -7,18 +7,26 @@ from models import Container, Item, LogEntry
 from datetime import datetime
 import logging
 
-def parse_containers_csv(contents: bytes) -> List[Dict[str, Any]]:
+def parse_containers_csv(contents: str) -> List[Dict[str, Any]]:
     """Parse a CSV file containing container information."""
     try:
-        decoded = contents.decode('utf-8')
-        csv_file = io.StringIO(decoded)
+        if isinstance(contents, bytes):
+            contents = contents.decode('utf-8')
+            
+        # Debug the raw content
+        logger.info(f"CSV Content (first 200 chars): {contents[:200]}")
+        
+        csv_file = io.StringIO(contents)
         reader = csv.DictReader(csv_file)
         
         containers = []
+        row_count = 0
+        
         for row in reader:
             try:
+                row_count += 1
                 # Debug info
-                logger.info(f"Processing container row: {row}")
+                logger.info(f"Processing container row {row_count}: {row}")
                 
                 # Handle new CSV format with columns zone, container_id, width_cm, depth_cm, height_cm
                 if all(key in row and row[key] for key in ['zone', 'container_id', 'width_cm', 'depth_cm', 'height_cm']):
@@ -32,32 +40,84 @@ def parse_containers_csv(contents: bytes) -> List[Dict[str, Any]]:
                         'zone': row['zone']
                     }
                     containers.append(container)
+                    logger.info(f"Added container from new format: {container}")
                 # Handle standard format with id, width, height, depth, capacity
-                elif all(key in row and row[key] for key in ['id', 'width', 'height', 'depth']):
+                elif all(key in row for key in ['id', 'width', 'height', 'depth']):
                     container = {
                         'id': row['id'],
                         'width': float(row['width']),
                         'height': float(row['height']),
                         'depth': float(row['depth']),
                         'capacity': int(row['capacity']) if 'capacity' in row and row['capacity'] else 10,
+                        'container_type': 'storage',  # Default type
+                        'zone': None  # Default zone
                     }
                     
                     # Add optional fields if present
                     if 'zone' in row and row['zone']:
                         container['zone'] = row['zone']
                     if 'container_type' in row and row['container_type']:
-                        container['container_type'] = row['container_type']
+                        container['container_type'] = row['container_type'].lower()
                     
                     containers.append(container)
+                    logger.info(f"Added container from standard format: {container}")
                 else:
-                    logger.warning(f"Skipping row with unknown format: {row}")
+                    # If we get here, try a more lenient parsing approach
+                    container = {}
+                    
+                    # Try to extract essential fields
+                    if 'id' in row and row['id']:
+                        container['id'] = row['id']
+                    elif 'container_id' in row and row['container_id']:
+                        container['id'] = row['container_id']
+                    else:
+                        logger.warning(f"Row {row_count} missing ID field, skipping")
+                        continue
+                    
+                    # Try to get dimensional data
+                    try:
+                        if all(key in row for key in ['width', 'height', 'depth']):
+                            container['width'] = float(row['width'])
+                            container['height'] = float(row['height'])
+                            container['depth'] = float(row['depth'])
+                        elif all(key in row for key in ['width_cm', 'height_cm', 'depth_cm']):
+                            container['width'] = float(row['width_cm']) / 100
+                            container['height'] = float(row['height_cm']) / 100
+                            container['depth'] = float(row['depth_cm']) / 100
+                        else:
+                            logger.warning(f"Row {row_count} missing dimensional data, using defaults")
+                            container['width'] = 2.0
+                            container['height'] = 2.0
+                            container['depth'] = 2.0
+                    except ValueError as e:
+                        logger.warning(f"Row {row_count} has invalid dimensional data: {e}, using defaults")
+                        container['width'] = 2.0
+                        container['height'] = 2.0
+                        container['depth'] = 2.0
+                    
+                    # Get capacity
+                    try:
+                        container['capacity'] = int(row['capacity']) if 'capacity' in row and row['capacity'] else 10
+                    except ValueError:
+                        container['capacity'] = 10
+                        logger.warning(f"Row {row_count} has invalid capacity, using default")
+                    
+                    # Get zone and type
+                    container['zone'] = row['zone'] if 'zone' in row and row['zone'] else None
+                    container['container_type'] = row['container_type'].lower() if 'container_type' in row and row['container_type'] else 'storage'
+                    
+                    containers.append(container)
+                    logger.info(f"Added container using lenient parsing: {container}")
             except (KeyError, ValueError) as e:
-                logger.warning(f"Skipping row due to error: {e} - {row}")
+                logger.warning(f"Error processing row {row_count}: {e} - {row}")
                 continue
         
+        logger.info(f"Successfully parsed {len(containers)} containers")
         return containers
     except Exception as e:
         logger.error(f"Error parsing containers CSV: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return []
 
 def parse_items_csv(contents: bytes) -> List[Dict[str, Any]]:
@@ -183,6 +243,13 @@ def import_items_to_db(db: Session, items: List[Dict[str, Any]]) -> int:
     """Import items into the database, returns count of imported items."""
     count = 0
     for item_data in items:
+        # Always set placement-related fields to indicate unplaced
+        item_data['is_placed'] = False
+        item_data['container_id'] = None
+        item_data['position_x'] = None
+        item_data['position_y'] = None
+        item_data['position_z'] = None
+        
         # Check if item already exists
         existing = db.query(Item).filter(Item.id == item_data['id']).first()
         

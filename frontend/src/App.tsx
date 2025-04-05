@@ -9,6 +9,7 @@ import Retrieve from './pages/Retrieve';
 import Simulation from './pages/Simulation';
 import Waste from './pages/Waste';
 import Logs from './pages/Logs';
+import Items from './pages/Items';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route index element={<Home />} />
           <Route path="upload" element={<Upload />} />
           <Route path="containers" element={<Containers />} />
+          <Route path="items" element={<Items />} />
           <Route path="retrieve" element={<Retrieve />} />
           <Route path="simulation" element={<Simulation />} />
           <Route path="waste" element={<Waste />} />

@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
-import { identifyWaste, generateWasteReturnPlan, WasteItem, WasteReturnPlan } from '../frontend-api';
+import { identifyWaste, generateWasteReturnPlan, getContainers, WasteItem, WasteReturnPlan } from '../frontend-api';
 
 const Waste = () => {
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
   const [returnPlan, setReturnPlan] = useState<WasteReturnPlan | null>(null);
   const [targetZone, setTargetZone] = useState<string>('Storage_Bay');
+  const [availableZones, setAvailableZones] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Identify waste items when component mounts
+  // Identify waste items and fetch zones when component mounts
   useEffect(() => {
+    console.log("Waste component mounted, fetching data...");
     fetchWasteItems();
+    fetchAvailableZones();
   }, []);
 
   const fetchWasteItems = async () => {
@@ -18,12 +21,105 @@ const Waste = () => {
     setError(null);
     try {
       const response = await identifyWaste();
+      console.log("Waste items response:", response);
       setWasteItems(response.waste_items || []);
     } catch (err) {
       setError('Failed to identify waste items');
       console.error(err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchAvailableZones = async () => {
+    console.log("Fetching available zones...");
+    try {
+      const response = await getContainers();
+      console.log("Raw containers response:", response);
+      
+      // Handle different response formats (might be array or {containers: []})
+      let containersArray: any[] = [];
+      if (Array.isArray(response)) {
+        console.log("Response is an array");
+        containersArray = response;
+      } else if (response && typeof response === 'object') {
+        console.log("Response is an object");
+        // Safely access potential containers property using type assertion
+        const responseObj = response as Record<string, any>;
+        if (Array.isArray(responseObj.containers)) {
+          console.log("Response has containers array property");
+          containersArray = responseObj.containers;
+        } else {
+          console.log("Response does not have containers array property:", responseObj);
+        }
+      } else {
+        console.log("Response is neither array nor object:", typeof response);
+      }
+      
+      if (!Array.isArray(containersArray) || containersArray.length === 0) {
+        console.error("No containers found in response");
+        
+        // Set default zones as fallback
+        const defaultZones = [
+          'Storage_Bay', 
+          'Command_Center', 
+          'Engineering_Bay', 
+          'Crew_Quarters',
+          'Medical_Bay',
+          'Lab'
+        ];
+        console.log("Setting default zones:", defaultZones);
+        setAvailableZones(defaultZones);
+        return;
+      }
+      
+      // Extract and filter unique zones
+      const zones = containersArray
+        .map((container: any) => container.zone)
+        .filter((zone: string | null) => zone !== null && zone !== undefined)
+        // Filter unique values
+        .filter((value: string, index: number, self: string[]) => self.indexOf(value) === index)
+        .sort();
+      
+      console.log("Extracted zones:", zones);
+      
+      if (zones.length > 0) {
+        console.log("Setting available zones:", zones);
+        setAvailableZones(zones);
+        
+        // Set default zone if we have zones and current targetZone isn't in the list
+        if (!zones.includes(targetZone)) {
+          console.log(`Current target zone ${targetZone} not in zones list, setting to ${zones[0]}`);
+          setTargetZone(zones[0]);
+        }
+      } else {
+        // Set default zones as fallback if no zones found
+        const defaultZones = [
+          'Storage_Bay', 
+          'Command_Center', 
+          'Engineering_Bay', 
+          'Crew_Quarters',
+          'Medical_Bay',
+          'Lab'
+        ];
+        console.log("No zones found in containers, setting default zones:", defaultZones);
+        setAvailableZones(defaultZones);
+      }
+    } catch (err) {
+      console.error('Failed to fetch container zones:', err);
+      // Don't show error to user as this is just for the dropdown
+      
+      // Set default zones as fallback
+      const defaultZones = [
+        'Storage_Bay', 
+        'Command_Center', 
+        'Engineering_Bay', 
+        'Crew_Quarters',
+        'Medical_Bay',
+        'Lab'
+      ];
+      console.log("Error fetching zones, setting default zones:", defaultZones);
+      setAvailableZones(defaultZones);
     }
   };
 
@@ -40,6 +136,10 @@ const Waste = () => {
       setIsLoading(false);
     }
   };
+
+  // Log current state before render
+  console.log("Rendering Waste component with availableZones:", availableZones);
+  console.log(`Will render ${availableZones.length > 0 ? 'dropdown selector' : 'text input'} for zones`);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -99,12 +199,34 @@ const Waste = () => {
         
         <div className="mb-4">
           <label className="block text-green-400 font-mono mb-2 text-xs">TARGET_ZONE:</label>
-          <input
-            type="text"
-            value={targetZone}
-            onChange={(e) => setTargetZone(e.target.value)}
-            className="bg-black/40 border border-green-500/30 text-green-300 px-3 py-2 rounded-md w-full max-w-md font-mono text-xs focus:outline-none focus:ring-1 focus:ring-green-500/50 focus:border-green-500/50"
-          />
+          {availableZones.length > 0 ? (
+            <select
+              value={targetZone}
+              onChange={(e) => setTargetZone(e.target.value)}
+              className="bg-black/40 border border-green-500/30 text-green-300 px-3 py-2 rounded-md w-full max-w-md font-mono text-xs focus:outline-none focus:ring-1 focus:ring-green-500/50 focus:border-green-500/50 appearance-none cursor-pointer hover:bg-black/60 focus:bg-black/60 transition-colors duration-200"
+              style={{
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2322c55e\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M19 9l-7 7-7-7\'%3E%3C/path%3E%3C/svg%3E")', 
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 0.5rem center',
+                backgroundSize: '1.5em 1.5em',
+                paddingRight: '2.5rem'
+              }}
+            >
+              {availableZones.map((zone) => (
+                <option key={zone} value={zone} className="bg-gray-900 text-green-300">
+                  {zone}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={targetZone}
+              onChange={(e) => setTargetZone(e.target.value)}
+              className="bg-black/40 border border-green-500/30 text-green-300 px-3 py-2 rounded-md w-full max-w-md font-mono text-xs focus:outline-none focus:ring-1 focus:ring-green-500/50 focus:border-green-500/50 hover:bg-black/60 focus:bg-black/60 transition-colors duration-200"
+              placeholder="Enter zone (e.g. Storage_Bay, W)"
+            />
+          )}
         </div>
         
         <button 

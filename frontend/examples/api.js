@@ -4,7 +4,7 @@
  */
 
 // Base URL for API requests
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8003';
 
 /**
  * Check the health of the API
@@ -24,7 +24,7 @@ async function importContainers(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/import/containers`, {
+    const response = await fetch(`${API_BASE_URL}/api/import/containers`, {
         method: 'POST',
         body: formData
     });
@@ -41,7 +41,7 @@ async function importItems(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const response = await fetch(`${API_BASE_URL}/import/items`, {
+    const response = await fetch(`${API_BASE_URL}/api/import/items`, {
         method: 'POST',
         body: formData
     });
@@ -64,7 +64,7 @@ async function importData(containersFile, itemsFile) {
         formData.append('items_file', itemsFile);
     }
     
-    const response = await fetch(`${API_BASE_URL}/import`, {
+    const response = await fetch(`${API_BASE_URL}/api/import`, {
         method: 'POST',
         body: formData
     });
@@ -78,7 +78,7 @@ async function importData(containersFile, itemsFile) {
  * @returns {Promise<Object>} Placement results
  */
 async function placeItems(options = {}) {
-    const response = await fetch(`${API_BASE_URL}/place-items`, {
+    const response = await fetch(`${API_BASE_URL}/api/placement`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -95,7 +95,7 @@ async function placeItems(options = {}) {
  * @returns {Promise<Object>} Retrieval path information
  */
 async function getRetrievalPath(itemId) {
-    const response = await fetch(`${API_BASE_URL}/retrieve/${itemId}`);
+    const response = await fetch(`${API_BASE_URL}/api/retrieve/${itemId}`);
     return await response.json();
 }
 
@@ -104,7 +104,7 @@ async function getRetrievalPath(itemId) {
  * @returns {Promise<Object>} List of containers
  */
 async function listContainers() {
-    const response = await fetch(`${API_BASE_URL}/containers`);
+    const response = await fetch(`${API_BASE_URL}/api/containers`);
     return await response.json();
 }
 
@@ -113,7 +113,7 @@ async function listContainers() {
  * @returns {Promise<Object>} List of items
  */
 async function listItems() {
-    const response = await fetch(`${API_BASE_URL}/items`);
+    const response = await fetch(`${API_BASE_URL}/api/search`);
     return await response.json();
 }
 
@@ -123,7 +123,7 @@ async function listItems() {
  * @returns {Promise<Object>} Container details
  */
 async function getContainer(containerId) {
-    const response = await fetch(`${API_BASE_URL}/containers/${containerId}`);
+    const response = await fetch(`${API_BASE_URL}/api/containers?containerId=${containerId}`);
     return await response.json();
 }
 
@@ -133,8 +133,81 @@ async function getContainer(containerId) {
  * @returns {Promise<Object>} Item details
  */
 async function getItem(itemId) {
-    const response = await fetch(`${API_BASE_URL}/items/${itemId}`);
+    const response = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
     return await response.json();
+}
+
+/**
+ * Get retrieval path for a specific item
+ * @param {string} itemId - The ID of the item to retrieve
+ * @returns {Promise<Object>} - Retrieval path information
+ */
+async function retrieveItem(itemId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
+        const data = await response.json();
+        
+        // Construct a result object compatible with the retrieve page expectations
+        if (data && data.items && data.items.length > 0) {
+            const item = data.items[0];
+            return {
+                found: true,
+                item_id: item.id,
+                path: [],
+                disturbed_items: [],
+                location: item.is_placed ? {
+                    container: item.container_id,
+                    position: {
+                        x: item.position.x,
+                        y: item.position.y,
+                        z: item.position.z
+                    }
+                } : null,
+                retrieval_time: new Date().toISOString(),
+                retrieved_by: "system",
+                item: item
+            };
+        } else {
+            return {
+                found: false,
+                item_id: itemId,
+                path: [],
+                disturbed_items: [],
+                location: null,
+                retrieval_time: new Date().toISOString(),
+                retrieved_by: "system"
+            };
+        }
+    } catch (error) {
+        console.error(`Error retrieving item ${itemId}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Get all containers and their items
+ * @returns {Promise<Object>} - Container data with items
+ */
+async function getContainers() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/containers`);
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching containers:', error);
+        // Return a fallback with sample zones
+        return {
+            containers: [
+                { id: "SB01", zone: "Sanitation_Bay" },
+                { id: "CC01", zone: "Command_Center" },
+                { id: "EB01", zone: "Engineering_Bay" },
+                { id: "CQ01", zone: "Crew_Quarters" },
+                { id: "MB01", zone: "Medical_Bay" },
+                { id: "G01", zone: "Greenhouse" }
+            ],
+            count: 6,
+            message: "Fallback container data"
+        };
+    }
 }
 
 // Export all functions
@@ -149,5 +222,7 @@ export {
     listContainers,
     listItems,
     getContainer,
-    getItem
+    getItem,
+    retrieveItem,
+    getContainers
 }; 

@@ -2,6 +2,29 @@ import React, { useState } from 'react';
 import { Search, Loader, Terminal, ArrowRight, CheckCircle, AlertTriangle, CircleOff } from 'lucide-react';
 import { retrieveItem } from '../api';
 
+interface ItemPosition {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface ItemData {
+  id: string;
+  name: string;
+  is_placed: boolean;
+  container_id?: string;
+  position?: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  usage_count: number;
+  usage_limit?: number;
+  is_waste: boolean;
+  last_retrieved?: string;
+  last_retrieved_by?: string;
+}
+
 interface RetrievalResult {
   found: boolean;
   item_id: string;
@@ -9,62 +32,124 @@ interface RetrievalResult {
   disturbed_items: string[];
   location?: {
     container: string;
-    position: {
-      x: number;
-      y: number;
-      z: number;
-    };
+    position: ItemPosition;
   };
   retrieval_time: string;
   retrieved_by: string;
+  item?: ItemData;
+}
+
+interface RetrieveApiResponse {
+  success: boolean;
+  message: string;
+  item?: ItemData;
 }
 
 const RetrievePage = () => {
   const [itemId, setItemId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<RetrievalResult | null>(null);
+  const [retrieving, setRetrieving] = useState(false);
+  const [locatedItem, setLocatedItem] = useState<RetrievalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [retrievalLogs, setRetrievalLogs] = useState<string[]>([]);
 
   const addLog = (message: string) => {
     setRetrievalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLocate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    setResult(null);
+    setSuccess(null);
+    setLocatedItem(null);
+    addLog(`INITIATING CARGO LOCATE SEQUENCE FOR CARGO_ID: ${itemId}`);
+
+    try {
+      // Get item information
+      const itemData = await import('../frontend-api').then(api => api.retrieveItem(itemId)) as RetrievalResult;
+      console.log('Item lookup data:', itemData);
+      
+      addLog(`CARGO LOOKUP COMPLETE`);
+      
+      if (itemData.found) {
+        if (itemData.location) {
+          addLog(`SUCCESS: CARGO LOCATED IN CONTAINER ${itemData.location.container}`);
+          setSuccess(`Item ${itemId} has been located in container ${itemData.location.container}.`);
+        } else {
+          addLog(`SUCCESS: CARGO FOUND BUT NOT CURRENTLY PLACED IN STORAGE`);
+          setSuccess(`Item ${itemId} is already available and not currently in storage.`);
+        }
+        setLocatedItem(itemData);
+      } else {
+        addLog(`WARNING: CARGO ID ${itemId} NOT FOUND IN SYSTEM`);
+        setLocatedItem(itemData);
+      }
+      
+      setLoading(false);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to locate item information');
+      addLog(`ERROR: LOCATE SEQUENCE FAILED - CHECK SYSTEM LOG`);
+      setLoading(false);
+    }
+  };
+
+  const handleRetrieve = async () => {
+    if (!locatedItem || !locatedItem.found) return;
+    
+    setRetrieving(true);
+    setError(null);
+    setSuccess(null);
     addLog(`INITIATING RETRIEVAL SEQUENCE FOR CARGO_ID: ${itemId}`);
 
     try {
-      const response = await retrieveItem(itemId);
-      const data = response.data;
-      console.log('Retrieval data:', data);
+      // Call the actual retrieve endpoint to mark item as retrieved
+      const retrieveResponse = await import('../frontend-api').then(api => 
+        api.trackItemUsage(itemId, 'system')
+      ) as RetrieveApiResponse;
       
+      console.log('Retrieval data:', retrieveResponse);
       addLog(`RETRIEVAL DATA RECEIVED FROM SERVER`);
-      setTimeout(() => {
-        setResult(data);
-        if (data.found) {
-          addLog(`SUCCESS: CARGO LOCATED IN CONTAINER ${data.location?.container}`);
-          addLog(`EXTRACTION PATH CALCULATED WITH ${data.disturbed_items?.length || 0} ITEMS REQUIRING REPOSITIONING`);
-        } else {
-          addLog(`WARNING: CARGO ID ${itemId} NOT FOUND IN SYSTEM`);
+      
+      if (retrieveResponse.success) {
+        // Update the located item to show it's no longer placed
+        if (locatedItem && locatedItem.location) {
+          setLocatedItem({
+            ...locatedItem,
+            location: undefined,
+            item: {
+              ...locatedItem.item!,
+              is_placed: false,
+              container_id: undefined,
+              position: undefined
+            }
+          });
+          
+          setSuccess(`Item ${itemId} has been successfully retrieved and is ready for use.`);
+          addLog(`CARGO SUCCESSFULLY RETRIEVED FROM STORAGE`);
+          addLog(`CARGO NOW AVAILABLE FOR USE`);
         }
-        setLoading(false);
-      }, 1000); // Simulate processing time for effect
-    } catch (err) {
-      setError('Failed to retrieve item information');
-      addLog(`ERROR: RETRIEVAL SEQUENCE FAILED - CHECK SYSTEM LOG`);
+      } else {
+        setError(retrieveResponse.message || 'Failed to retrieve item');
+        addLog(`ERROR: RETRIEVAL FAILED - ${retrieveResponse.message}`);
+      }
+      
+      setRetrieving(false);
+    } catch (err: any) {
       console.error(err);
-      setLoading(false);
+      setError(`Failed to retrieve item: ${err.message}`);
+      addLog(`ERROR: RETRIEVAL SEQUENCE FAILED - CHECK SYSTEM LOG`);
+      setRetrieving(false);
     }
   };
 
   const resetAll = () => {
     setItemId('');
-    setResult(null);
+    setLocatedItem(null);
     setError(null);
+    setSuccess(null);
     setRetrievalLogs([]);
   };
 
@@ -72,7 +157,7 @@ const RetrievePage = () => {
     <div className="w-full max-w-6xl mx-auto">
       <div className="text-green-500 text-xl mb-4 font-bold flex justify-between items-center">
         <div># CARGO RETRIEVAL SYSTEM</div>
-        {(result || retrievalLogs.length > 0) && (
+        {(locatedItem || retrievalLogs.length > 0) && (
           <button 
             onClick={resetAll}
             className="text-xs text-gray-500 hover:text-green-400 px-3 py-1 border border-green-900/30 rounded-sm bg-black/20"
@@ -92,7 +177,7 @@ const RetrievePage = () => {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleLocate} className="space-y-4">
               <div>
                 <label htmlFor="itemId" className="block text-sm text-green-400 mb-2">
                   {'>'} ENTER CARGO ID:
@@ -126,7 +211,7 @@ const RetrievePage = () => {
             {loading && (
               <div className="mt-4 text-sm text-green-500 animate-pulse flex items-center">
                 <Terminal className="h-4 w-4 mr-2" />
-                PROCESSING RETRIEVAL REQUEST...
+                PROCESSING LOCATE REQUEST...
               </div>
             )}
           </div>
@@ -134,7 +219,7 @@ const RetrievePage = () => {
           {retrievalLogs.length > 0 && (
             <div className="bg-gray-950 p-4 rounded-md border border-green-800/30">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-green-400 text-sm font-bold">RETRIEVAL.LOG</div>
+                <div className="text-green-400 text-sm font-bold">SYSTEM.LOG</div>
                 <button 
                   className="text-xs text-gray-500 hover:text-green-400"
                   onClick={() => setRetrievalLogs([])}
@@ -157,89 +242,113 @@ const RetrievePage = () => {
               <div className="flex items-start">
                 <AlertTriangle className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-red-400 mb-1 font-bold">RETRIEVAL ERROR</p>
+                  <p className="text-red-400 mb-1 font-bold">ERROR</p>
                   <p className="text-red-300 text-sm">{error}</p>
-                  <p className="text-xs text-gray-500 mt-2">ERROR CODE: CARGO-RETRIEVAL-001</p>
+                  <p className="text-xs text-gray-500 mt-2">ERROR CODE: CARGO-SYSTEM-001</p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {success && (
+            <div className="bg-green-900/20 border border-green-500/30 rounded-md p-4 mb-6">
+              <div className="flex items-start">
+                <CheckCircle className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-green-400 mb-1 font-bold">SUCCESS</p>
+                  <p className="text-green-300 text-sm">{success}</p>
                 </div>
               </div>
             </div>
           )}
 
-          {result && (
+          {locatedItem && (
             <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
               <div className="flex items-center justify-between mb-4">
-                <div className="text-green-400 text-sm font-bold">RETRIEVAL RESULTS</div>
-                <div className={`px-2 py-1 ${result.found ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-400'} text-xs rounded border ${result.found ? 'border-green-500/20' : 'border-red-500/20'}`}>
-                  {result.found ? 'CARGO LOCATED' : 'NOT FOUND'}
+                <div className="text-green-400 text-sm font-bold">LOCATE RESULTS</div>
+                <div className={`px-2 py-1 ${locatedItem.found ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-400'} text-xs rounded border ${locatedItem.found ? 'border-green-500/20' : 'border-red-500/20'}`}>
+                  {locatedItem.found ? 'CARGO LOCATED' : 'NOT FOUND'}
                 </div>
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-start">
-                  {result.found ? (
-                    <CheckCircle className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-1" />
-                  ) : (
-                    <CircleOff className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-1" />
-                  )}
-                  <div>
-                    <div className="text-sm mb-2">
-                      <span className="text-gray-500">STATUS:</span>{' '}
-                      <span className={result.found ? 'text-green-400' : 'text-red-400'}>
-                        {result.found ? 'CARGO FOUND' : 'CARGO NOT FOUND'}
-                      </span>
+                {locatedItem.found ? (
+                  <>
+                    <div className="bg-black/30 p-3 rounded-md">
+                      <div className="text-xs text-gray-500 mb-2">CARGO DETAILS</div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-xs text-gray-500">ID</div>
+                          <div className="text-green-400 font-bold">
+                            {locatedItem.item_id}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500">NAME</div>
+                          <div className="text-green-400 font-bold">
+                            {locatedItem.item?.name || '-'}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    {!result.found && (
+
+                    {locatedItem.location ? (
+                      <>
+                        <div className="bg-black/30 p-3 rounded-md">
+                          <div className="text-xs text-gray-500 mb-2">LOCATION DATA</div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <div className="text-xs text-gray-500">CONTAINER</div>
+                              <div className="text-green-400 font-bold">
+                                {locatedItem.location.container}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">POSITION (X,Y,Z)</div>
+                              <div className="text-green-400 font-mono">
+                                {`${locatedItem.location.position.x}, ${locatedItem.location.position.y}, ${locatedItem.location.position.z}`}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={handleRetrieve}
+                          disabled={retrieving}
+                          className="w-full py-3 bg-green-700 hover:bg-green-600 text-white font-bold rounded-md flex items-center justify-center disabled:opacity-50"
+                        >
+                          {retrieving ? (
+                            <>
+                              <Loader className="h-5 w-5 animate-spin mr-2" />
+                              RETRIEVING...
+                            </>
+                          ) : (
+                            'RETRIEVE CARGO'
+                          )}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="bg-yellow-900/20 border border-yellow-700/30 p-3 rounded-md">
+                        <div className="flex items-center">
+                          <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
+                          <div className="text-yellow-400">
+                            CARGO IS NOT CURRENTLY PLACED IN A CONTAINER
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-start">
+                    <CircleOff className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-1" />
+                    <div>
+                      <div className="text-sm mb-2">
+                        <span className="text-gray-500">STATUS:</span>{' '}
+                        <span className="text-red-400">CARGO NOT FOUND</span>
+                      </div>
                       <div className="text-xs text-gray-500 bg-black/30 p-2 rounded">
                         RECOMMENDED ACTION: VERIFY CARGO ID AND CHECK MANIFEST
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {result.location && (
-                  <div className="bg-black/30 p-3 rounded-md">
-                    <div className="text-xs text-gray-500 mb-2">LOCATION DATA</div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-xs text-gray-500">CONTAINER</div>
-                        <div className="text-green-400 font-bold">
-                          {result.location.container}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-gray-500">POSITION (X,Y,Z)</div>
-                        <div className="text-green-400 font-mono">
-                          {`${result.location.position.x}, ${result.location.position.y}, ${result.location.position.z}`}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {result.found && (
-                  <div className="bg-black/30 p-3 rounded-md">
-                    <div className="text-xs text-gray-500 mb-2">RETRIEVAL PATH</div>
-                    <div className="space-y-2">
-                      {result.path.map((step, index) => (
-                        <div key={index} className="flex items-center">
-                          <div className="text-green-500 w-6 text-center">{index + 1}</div>
-                          <ArrowRight className="h-3 w-3 text-green-600 mx-2" />
-                          <div className="text-green-300 text-sm">{step}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {result.disturbed_items && result.disturbed_items.length > 0 && (
-                  <div className="bg-yellow-900/10 p-3 rounded-md border border-yellow-700/30">
-                    <div className="text-xs text-yellow-500 mb-2">ITEMS TO BE TEMPORARILY DISPLACED</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {result.disturbed_items.map((item, index) => (
-                        <div key={index} className="text-yellow-400 text-xs bg-black/30 px-2 py-1 rounded">
-                          {item}
-                        </div>
-                      ))}
                     </div>
                   </div>
                 )}
@@ -251,7 +360,7 @@ const RetrievePage = () => {
       
       <div className="mt-8 text-xs text-gray-500 border-t border-green-600/30 pt-4">
         <div className="flex justify-between">
-          <div>CARGO RETRIEVAL MODULE v1.3.4</div>
+          <div>CARGO RETRIEVAL MODULE v1.4.0</div>
           <div>ACCESS LEVEL: AUTHORIZED</div>
         </div>
       </div>

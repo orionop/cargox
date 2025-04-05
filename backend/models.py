@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, JSON, Date
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, JSON, Date, DateTime
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -180,4 +180,13 @@ class LogEntryResponse(BaseModel):
     details: Optional[str] = None
     
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+# System configuration model
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    
+    key = Column(String, primary_key=True)
+    value = Column(String)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now) 
