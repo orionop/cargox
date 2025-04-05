@@ -10,6 +10,7 @@ import Simulation from './pages/Simulation';
 import Waste from './pages/Waste';
 import Logs from './pages/Logs';
 import Items from './pages/Items';
+import Rearrange from './pages/Rearrange';
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route path="simulation" element={<Simulation />} />
           <Route path="waste" element={<Waste />} />
           <Route path="logs" element={<Logs />} />
+          <Route path="rearrange" element={<Rearrange />} />
         </Route>
       </Routes>
     </BrowserRouter>

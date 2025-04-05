@@ -337,6 +337,70 @@ export async function exportArrangement() {
 }
 
 /**
+ * Get container rearrangement recommendations
+ * @returns {Promise<Object>} - Rearrangement suggestions
+ */
+export async function getRearrangementSuggestions() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/rearrangement-recommendation`, {
+      method: 'POST'
+    });
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting rearrangement suggestions:', error);
+    throw error;
+  }
+}
+
+/**
+ * Execute a rearrangement plan by moving the specified items
+ * @param {Array} rearrangementPlan - The plan to execute, containing item moves
+ * @returns {Promise<Object>} - Result of the rearrangement operation
+ */
+export async function executeRearrangementPlan(rearrangementPlan) {
+  try {
+    // We'll implement this by moving each item to its target container
+    // This requires multiple API calls (one per item)
+    const results = [];
+    
+    for (const move of rearrangementPlan) {
+      // Call the place API for each item
+      const response = await fetch(`${API_BASE_URL}/api/place`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          itemId: move.item_id,
+          containerId: move.to_container,
+          positionX: 0, // Default positions - the backend will find the best place
+          positionY: 0,
+          positionZ: 0,
+          userId: "system"
+        }),
+      });
+      
+      const result = await response.json();
+      results.push({
+        ...move,
+        success: result.success,
+        message: result.message
+      });
+    }
+    
+    return {
+      success: true,
+      message: `Successfully moved ${results.filter(r => r.success).length}/${rearrangementPlan.length} items`,
+      results
+    };
+  } catch (error) {
+    console.error('Error executing rearrangement plan:', error);
+    throw error;
+  }
+}
+
+/**
  * Get all items
  * @returns {Promise<Object>} - All items
  */

@@ -189,4 +189,32 @@ export function getLogs(filters?: {
   to_date?: string;
   limit?: number;
 }): Promise<LogsResponse>;
-export function repackItems(): Promise<PlacementResult>; 
+export function repackItems(): Promise<PlacementResult>;
+export function exportArrangement(): Promise<Blob>;
+export function getRearrangementSuggestions(): Promise<{
+  full_containers: string[];
+  moveable_items_count: number;
+  rearrangement_plan: Array<{
+    item_id: string;
+    item_name: string;
+    from_container: string;
+    to_container: string;
+  }>;
+}>;
+export function executeRearrangementPlan(rearrangementPlan: Array<{
+  item_id: string;
+  item_name: string;
+  from_container: string;
+  to_container: string;
+}>): Promise<{
+  success: boolean;
+  message: string;
+  results: Array<{
+    item_id: string;
+    item_name: string;
+    from_container: string;
+    to_container: string;
+    success: boolean;
+    message: string;
+  }>;
+}>; 

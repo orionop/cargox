@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Boxes, Upload, Search, ArrowRight, Play, Database, ArrowRightCircle, Trash } from 'lucide-react';
+import { Boxes, Upload, Search, ArrowRight, Play, Database, ArrowRightCircle, Trash, RefreshCw } from 'lucide-react';
 import { runPlacementAlgorithm } from '../api';
 import toast from 'react-hot-toast';
 
@@ -200,8 +200,20 @@ const Home = () => {
               <Search className="h-8 w-8 text-green-500" />
               <ArrowRight className="h-4 w-4 text-green-500/60" />
             </div>
-            <h2 className="text-lg font-bold mb-2 text-green-400">RETRIEVE.CARGO</h2>
-            <p className="text-sm text-gray-400">Execute cargo retrieval protocol with optimized extraction path</p>
+            <h2 className="text-lg font-bold mb-2 text-green-400">VIEW.RETRIEVE</h2>
+            <p className="text-sm text-gray-400">Locate and access specific items for mission critical tasks</p>
+          </Link>
+
+          <Link
+            to="/rearrange"
+            className="bg-gray-950 p-5 rounded-md hover:border-green-500 border border-green-800/30 hover:bg-black transition-all"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <RefreshCw className="h-8 w-8 text-green-500" />
+              <ArrowRight className="h-4 w-4 text-green-500/60" />
+            </div>
+            <h2 className="text-lg font-bold mb-2 text-green-400">OPTIMIZE.CARGO</h2>
+            <p className="text-sm text-gray-400">Review and implement intelligent cargo rearrangement suggestions</p>
           </Link>
         </div>
         
