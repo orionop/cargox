@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status, Body, Query
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status, Body, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
@@ -516,8 +516,8 @@ async def repack_items(db: Session = Depends(get_db)):
         )
 
 # Get rearrangement recommendations
-@app.post("/rearrangement-recommendation")
-async def get_rearrangement_recommendation(db: Session = Depends(get_db)):
+@app.post("/api/rearrangement-recommendation")
+async def suggest_rearrangement(db: Session = Depends(get_db)):
     try:
         # Initialize the placement service
         placement_service = PlacementService(db)
@@ -527,7 +527,7 @@ async def get_rearrangement_recommendation(db: Session = Depends(get_db)):
         
         # Log the rearrangement recommendation
         log_action(db, "rearrangement_recommendation", None, None, "system", 
-                  f"Rearrangement recommendation with {len(result.get('rearrangement_plan', []))} moves")
+                  f"Rearrangement recommendation with {len(result.get('suggested_moves', []))} moves and {len(result.get('disorganized_containers', []))} disorganized containers")
         
         return result
     
@@ -1172,45 +1172,9 @@ def get_db_with_fallback():
 # Modify the endpoints to use the new database dependency
 
 # 1. Placement Recommendations API
-@app.post("/api/placement", response_model=PlacementResult)
-async def api_placement(db: Session = Depends(get_db_with_fallback)):
+@app.post("/api/placement", response_model=None)
+async def api_placement(request: Request, db: Session = Depends(get_db)):
     try:
-        # For mock DB, just return static placement result
-        if isinstance(db, MockDB):
-            return PlacementResult(
-                success=True,
-                message="Placement recommendations (MOCK DATA)",
-                containers=[{
-                    "id": "mockContainer",
-                    "width": 2.0,
-                    "height": 2.0,
-                    "depth": 2.0,
-                    "capacity": 10,
-                    "container_type": "Storage",
-                    "zone": "A",
-                    "items": [{
-                        "id": "mockItem001",
-                        "name": "Mock Item",
-                        "width": 0.5,
-                        "height": 0.5,
-                        "depth": 0.5,
-                        "weight": 5.0,
-                        "is_placed": True,
-                        "container_id": "mockContainer",
-                        "position": {
-                            "x": 0.0,
-                            "y": 0.0,
-                            "z": 0.0
-                        },
-                        "priority": 90,
-                        "preferred_zone": "A",
-                        "is_waste": False
-                    }]
-                }],
-                unplaced_items=[]
-            )
-        
-        # Regular implementation for real DB
         # Initialize the placement service
         placement_service = PlacementService(db)
         
@@ -1277,12 +1241,12 @@ async def api_placement(db: Session = Depends(get_db_with_fallback)):
         except Exception as log_error:
             logger.warning(f"Could not log action: {str(log_error)}")
         
-        return PlacementResult(
-            success=True,
-            message=f"Placement recommendations for {result.get('placed_count', 0)} items, {result.get('unplaced_count', 0)} items unplaced",
-            containers=container_data,
-            unplaced_items=unplaced_data
-        )
+        return {
+            "success": True,
+            "message": f"Placement recommendations for {result.get('placed_count', 0)} items, {result.get('unplaced_count', 0)} items unplaced",
+            "containers": container_data,
+            "unplaced_items": unplaced_data
+        }
     
     except Exception as e:
         logger.error(f"Error generating placement recommendations: {str(e)}")
@@ -1297,52 +1261,9 @@ async def api_search(
     itemId: Optional[str] = None,
     itemName: Optional[str] = None,
     userId: Optional[str] = None,
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            if itemId == "test001":
-                return {
-                    "items": [{
-                        "id": "test001",
-                        "name": "Test Item",
-                        "width": 1.0,
-                        "height": 1.0,
-                        "depth": 1.0,
-                        "weight": 5.0,
-                        "is_placed": False,
-                        "container_id": None,
-                        "position": None,
-                        "priority": 10,
-                        "preferred_zone": "A",
-                        "is_waste": False
-                    }],
-                    "count": 1,
-                    "message": "Found 1 items matching the criteria (MOCK DATA)"
-                }
-            elif itemName and "test" in itemName.lower():
-                return {
-                    "items": [{
-                        "id": "test001",
-                        "name": "Test Item",
-                        "width": 1.0,
-                        "height": 1.0,
-                        "depth": 1.0,
-                        "weight": 5.0,
-                        "is_placed": False,
-                        "container_id": None,
-                        "position": None,
-                        "priority": 10,
-                        "preferred_zone": "A",
-                        "is_waste": False
-                    }],
-                    "count": 1,
-                    "message": "Found 1 items matching the criteria (MOCK DATA)"
-                }
-            else:
-                return {"items": [], "count": 0, "message": "No items found matching the criteria"}
-        
         # Build query
         query = db.query(Item)
         
@@ -1463,7 +1384,7 @@ async def api_search(
 @app.post("/api/retrieve")
 async def api_retrieve(
     body: dict = Body(...),
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
         item_id = body.get("itemId")
@@ -1472,29 +1393,6 @@ async def api_retrieve(
         if not item_id:
             raise HTTPException(status_code=400, detail="itemId is required")
         
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            if item_id == "mockItem001" or item_id == "test001":
-                return {
-                    "success": True,
-                    "message": f"Item {item_id} retrieved by {user_id} (MOCK DATA)",
-                    "item": {
-                        "id": item_id,
-                        "name": "Mock Item" if item_id == "mockItem001" else "Test Item",
-                        "usage_count": 1,
-                        "usage_limit": 10,
-                        "is_waste": False,
-                        "last_retrieved": datetime.now().date().isoformat(),
-                        "last_retrieved_by": user_id
-                    }
-                }
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Item with ID {item_id} not found"
-                )
-        
-        # Regular implementation
         # Get the item
         item = db.query(Item).filter(Item.id == item_id).first()
         if not item:
@@ -1561,7 +1459,7 @@ async def api_retrieve(
 @app.post("/api/place")
 async def api_place(
     body: dict = Body(...),
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
         item_id = body.get("itemId", "")
@@ -1571,101 +1469,80 @@ async def api_place(
         position_z = body.get("position", {}).get("z", 0.0) if body.get("position") else body.get("positionZ", 0.0)
         user_id = body.get("userId", "system")
         
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            if item_id == "mockItem001" or item_id == "test001" or item_id == "001555":
-                return {
-                    "success": True,
-                    "message": f"Item {item_id} placed in container {container_id} by {user_id} (MOCK DATA)",
-                    "item": {
-                        "id": item_id,
-                        "name": "Mock Item" if item_id == "mockItem001" else "Test Item",
-                        "container_id": container_id,
-                        "position": {
-                            "x": position_x,
-                            "y": position_y,
-                            "z": position_z
-                        },
-                        "is_placed": True
-                    }
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"Item with ID {item_id} not found (MOCK DATA)"
-                }
+        # Get the item
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Item with ID {item_id} not found"
+            )
+            
+        # Get the container
+        container = db.query(Container).filter(Container.id == container_id).first()
+        if not container:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Container with ID {container_id} not found"
+            )
+            
+        # Validate position is within container dimensions
+        if position_x < 0 or position_x + item.width > container.width:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item width exceeds container boundaries or invalid x position"
+            )
+            
+        if position_y < 0 or position_y + item.height > container.height:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item height exceeds container boundaries or invalid y position"
+            )
+            
+        if position_z < 0 or position_z + item.depth > container.depth:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item depth exceeds container boundaries or invalid z position"
+            )
+            
+        # Update item placement
+        item.container_id = container_id
+        item.position_x = position_x
+        item.position_y = position_y
+        item.position_z = position_z
+        item.is_placed = True
         
-        # Regular implementation
-        try:
-            # First, check if the items and containers exist
-            item = db.query(Item).filter(Item.id == item_id).first()
-            if not item:
-                return {
-                    "success": False,
-                    "message": f"Item with ID {item_id} not found"
-                }
-                
-            container = db.query(Container).filter(Container.id == container_id).first()
-            if not container:
-                return {
-                    "success": False,
-                    "message": f"Container with ID {container_id} not found"
-                }
-                
-            # Validate position is within container dimensions
-            if position_x < 0 or position_x + item.width > container.width:
-                return {
-                    "success": False,
-                    "message": f"Item width exceeds container boundaries or invalid x position"
-                }
-                
-            if position_y < 0 or position_y + item.height > container.height:
-                return {
-                    "success": False,
-                    "message": f"Item height exceeds container boundaries or invalid y position"
-                }
-                
-            if position_z < 0 or position_z + item.depth > container.depth:
-                return {
-                    "success": False,
-                    "message": f"Item depth exceeds container boundaries or invalid z position"
-                }
-                
-            # Update item placement
-            item.container_id = container_id
-            item.position_x = position_x
-            item.position_y = position_y
-            item.position_z = position_z
-            item.is_placed = True
-            
-            # Save changes
-            db.commit()
-            
-            # Log the placement
-            log_action(db, "placement", item_id, container_id, user_id, 
-                    f"Item placed in container at position ({position_x}, {position_y}, {position_z})")
-            
-            return {
-                "success": True,
-                "message": f"Item {item_id} placed in container {container_id} by {user_id}",
-                "item": {
-                    "id": item.id,
-                    "name": item.name,
-                    "container_id": item.container_id,
-                    "position": {
-                        "x": item.position_x,
-                        "y": item.position_y,
-                        "z": item.position_z
-                    },
-                    "is_placed": item.is_placed
-                }
+        # Save changes
+        db.commit()
+        
+        # Log the placement
+        log_action(db, "placement", item_id, container_id, user_id, 
+                  f"Item placed in container at position ({position_x}, {position_y}, {position_z})")
+        
+        return {
+            "success": True,
+            "message": f"Item {item_id} placed in container {container_id} by {user_id}",
+            "item": {
+                "id": item.id,
+                "name": item.name,
+                "container_id": item.container_id,
+                "position": {
+                    "x": item.position_x,
+                    "y": item.position_y,
+                    "z": item.position_z
+                },
+                "is_placed": item.is_placed
             }
-        except Exception as e:
-            logger.error(f"Error placing item {item_id}: {str(e)}")
-            return {
-                "success": False,
-                "message": f"Error placing item: {str(e)}"
-            }
+        }
+    
+    except HTTPException:
+        raise
+    
+    except Exception as e:
+        logger.error(f"Error placing item {item_id}: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Error placing item: {str(e)}"
+        }
     
     except Exception as e:
         logger.error(f"Error in API place endpoint: {str(e)}")
@@ -2026,17 +1903,9 @@ async def api_simulate_day(
 @app.post("/api/import/items", response_model=ImportResponse)
 async def api_import_items(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            return ImportResponse(
-                success=True,
-                message="Successfully imported 5 items (MOCK DATA)",
-                items_count=5
-            )
-        
         # Validate file type
         if not file.filename.endswith('.csv'):
             return ImportResponse(
@@ -2084,17 +1953,9 @@ async def api_import_items(
 @app.post("/api/import/containers", response_model=ImportResponse)
 async def api_import_containers(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            return ImportResponse(
-                success=True,
-                message="Successfully imported 3 containers (MOCK DATA)",
-                containers_count=3
-            )
-        
         # Validate file type
         if not file.filename.endswith('.csv'):
             return ImportResponse(
@@ -2344,40 +2205,9 @@ async def api_containers(
     containerId: Optional[str] = None,
     containerType: Optional[str] = None,
     zone: Optional[str] = None,
-    db: Session = Depends(get_db_with_fallback)
+    db: Session = Depends(get_db)
 ):
     try:
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            mock_container = {
-                "id": "mockContainer",
-                "width": 2.0,
-                "height": 2.0,
-                "depth": 2.0,
-                "capacity": 10,
-                "container_type": "Storage",
-                "zone": "A",
-                "items": []
-            }
-            
-            if containerId == "mockContainer":
-                return {
-                    "containers": [mock_container],
-                    "count": 1,
-                    "message": "Found 1 container matching the criteria (MOCK DATA)"
-                }
-            elif containerType == "Waste":
-                waste_container = mock_container.copy()
-                waste_container["container_type"] = "Waste"
-                waste_container["zone"] = "W"
-                return {
-                    "containers": [waste_container],
-                    "count": 1,
-                    "message": "Found 1 container matching the criteria (MOCK DATA)"
-                }
-            else:
-                return {"containers": [], "count": 0, "message": "No containers found matching the criteria"}
-        
         # Build query
         try:
             query = db.query(Container)
@@ -2479,11 +2309,8 @@ async def api_containers(
         )
 
 @app.post("/api/truncate-database")
-async def truncate_database(db: Session = Depends(get_db_with_fallback)):
+async def truncate_database(db: Session = Depends(get_db)):
     try:
-        if isinstance(db, MockDB):
-            return {"success": False, "message": "Cannot truncate mock database"}
-        
         # Delete all records from tables (in reverse order to respect foreign keys)
         db.query(LogEntry).delete()
         db.query(Item).delete()
@@ -2506,4 +2333,10 @@ async def truncate_database(db: Session = Depends(get_db_with_fallback)):
 
 # Run the application
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    try:
+        # Run the server with uvicorn
+        import uvicorn
+        logger.info("Starting server on port 8001")
+        uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
+    except Exception as e:
+        logger.error(f"Error starting server: {str(e)}") 

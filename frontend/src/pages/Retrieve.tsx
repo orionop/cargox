@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Loader, Terminal, ArrowRight, CheckCircle, AlertTriangle, CircleOff } from 'lucide-react';
-import { retrieveItem } from '../api';
+import { retrieveItem, trackItemUsage } from '../frontend-api';
 
 interface ItemPosition {
   x: number;
@@ -37,6 +37,7 @@ interface RetrievalResult {
   retrieval_time: string;
   retrieved_by: string;
   item?: ItemData;
+  error?: string;
 }
 
 interface RetrieveApiResponse {
@@ -68,12 +69,16 @@ const RetrievePage = () => {
 
     try {
       // Get item information
-      const itemData = await import('../frontend-api').then(api => api.retrieveItem(itemId)) as RetrievalResult;
+      const itemData = await retrieveItem(itemId) as RetrievalResult;
       console.log('Item lookup data:', itemData);
       
       addLog(`CARGO LOOKUP COMPLETE`);
       
-      if (itemData.found) {
+      if (itemData.error) {
+        setError(itemData.error);
+        addLog(`ERROR: ${itemData.error}`);
+        setLocatedItem(itemData);
+      } else if (itemData.found) {
         if (itemData.location) {
           addLog(`SUCCESS: CARGO LOCATED IN CONTAINER ${itemData.location.container}`);
           setSuccess(`Item ${itemId} has been located in container ${itemData.location.container}.`);
@@ -88,10 +93,10 @@ const RetrievePage = () => {
       }
       
       setLoading(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Failed to locate item information');
-      addLog(`ERROR: LOCATE SEQUENCE FAILED - CHECK SYSTEM LOG`);
+      setError(err.message || 'Failed to locate item information');
+      addLog(`ERROR: LOCATE SEQUENCE FAILED - ${err.message || 'CHECK SYSTEM LOG'}`);
       setLoading(false);
     }
   };
@@ -106,9 +111,7 @@ const RetrievePage = () => {
 
     try {
       // Call the actual retrieve endpoint to mark item as retrieved
-      const retrieveResponse = await import('../frontend-api').then(api => 
-        api.trackItemUsage(itemId, 'system')
-      ) as RetrieveApiResponse;
+      const retrieveResponse = await trackItemUsage(itemId, 'system') as RetrieveApiResponse;
       
       console.log('Retrieval data:', retrieveResponse);
       addLog(`RETRIEVAL DATA RECEIVED FROM SERVER`);

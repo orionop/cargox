@@ -192,14 +192,19 @@ export function getLogs(filters?: {
 export function repackItems(): Promise<PlacementResult>;
 export function exportArrangement(): Promise<Blob>;
 export function getRearrangementSuggestions(): Promise<{
-  full_containers: string[];
-  moveable_items_count: number;
-  rearrangement_plan: Array<{
+  suggested_moves: Array<{
     item_id: string;
-    item_name: string;
     from_container: string;
-    to_container: string;
+    suggested_containers: string[];
+    reason: string;
   }>;
+  disorganized_containers: Array<{
+    container_id: string;
+    efficiency: number;
+    accessibility_issues: number;
+    items_count: number;
+  }>;
+  reason: string;
 }>;
 export function executeRearrangementPlan(rearrangementPlan: Array<{
   item_id: string;

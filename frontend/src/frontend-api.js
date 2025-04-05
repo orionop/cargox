@@ -4,7 +4,7 @@
  */
 
 // Configuration - make sure this points to your Docker backend
-const API_BASE_URL = 'http://localhost:8003';
+const API_BASE_URL = 'http://localhost:8000';
 
 /**
  * Import containers from a CSV file
@@ -342,11 +342,50 @@ export async function exportArrangement() {
  */
 export async function getRearrangementSuggestions() {
   try {
-    const response = await fetch(`${API_BASE_URL}/rearrangement-recommendation`, {
+    const response = await fetch(`${API_BASE_URL}/api/rearrangement-recommendation`, {
       method: 'POST'
     });
     
-    return await response.json();
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Rearrangement API error:', errorData);
+      throw new Error(errorData.detail || 'Failed to get rearrangement suggestions');
+    }
+    
+    const data = await response.json();
+    
+    // Handle response format compatibility
+    if (!data.suggested_moves && !data.rearrangement_plan) {
+      // If neither format is present, create a default structure
+      return {
+        suggested_moves: [],
+        disorganized_containers: [],
+        reason: "No rearrangement needed"
+      };
+    }
+    
+    // If data is in old format, convert it
+    if (data.rearrangement_plan && !data.suggested_moves) {
+      return {
+        suggested_moves: data.rearrangement_plan.map(item => ({
+          item_id: item.item_id,
+          from_container: item.from_container,
+          suggested_containers: [item.to_container],
+          reason: item.reason || "Container optimization"
+        })),
+        disorganized_containers: data.disorganized_containers 
+          ? data.disorganized_containers.map(id => ({
+              container_id: id,
+              efficiency: 0.7, // Default value
+              accessibility_issues: 1,
+              items_count: 0
+            }))
+          : [],
+        reason: "Container optimization required"
+      };
+    }
+    
+    return data;
   } catch (error) {
     console.error('Error getting rearrangement suggestions:', error);
     throw error;
@@ -360,43 +399,78 @@ export async function getRearrangementSuggestions() {
  */
 export async function executeRearrangementPlan(rearrangementPlan) {
   try {
+    console.log("Executing rearrangement plan:", rearrangementPlan);
+    
+    if (!rearrangementPlan || rearrangementPlan.length === 0) {
+      return {
+        success: false,
+        message: "No rearrangement plan provided",
+        results: []
+      };
+    }
+    
     // We'll implement this by moving each item to its target container
     // This requires multiple API calls (one per item)
     const results = [];
+    let successCount = 0;
     
     for (const move of rearrangementPlan) {
-      // Call the place API for each item
-      const response = await fetch(`${API_BASE_URL}/api/place`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          itemId: move.item_id,
-          containerId: move.to_container,
-          positionX: 0, // Default positions - the backend will find the best place
-          positionY: 0,
-          positionZ: 0,
-          userId: "system"
-        }),
-      });
-      
-      const result = await response.json();
-      results.push({
-        ...move,
-        success: result.success,
-        message: result.message
-      });
+      try {
+        console.log(`Moving item ${move.item_id} from ${move.from_container} to ${move.to_container}`);
+        // Call the place API for each item
+        const response = await fetch(`${API_BASE_URL}/api/place`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            itemId: move.item_id,
+            containerId: move.to_container,
+            positionX: 0, // Default positions - the backend will find the best place
+            positionY: 0,
+            positionZ: 0,
+            userId: "system"
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || `Failed to move item ${move.item_id}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          successCount++;
+        }
+        
+        results.push({
+          ...move,
+          success: result.success,
+          message: result.message || (result.success ? 'Success' : 'Failed')
+        });
+      } catch (error) {
+        console.error(`Error moving item ${move.item_id}:`, error);
+        results.push({
+          ...move,
+          success: false,
+          message: error.message || `Failed to move item ${move.item_id}`
+        });
+      }
     }
     
     return {
-      success: true,
-      message: `Successfully moved ${results.filter(r => r.success).length}/${rearrangementPlan.length} items`,
+      success: successCount > 0,
+      message: `Successfully moved ${successCount}/${rearrangementPlan.length} items`,
       results
     };
   } catch (error) {
     console.error('Error executing rearrangement plan:', error);
-    throw error;
+    return {
+      success: false,
+      message: `Error executing rearrangement plan: ${error.message}`,
+      results: []
+    };
   }
 }
 

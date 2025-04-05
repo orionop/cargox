@@ -38,10 +38,16 @@ const Home = () => {
       const response = await runPlacementAlgorithm();
       console.log('Algorithm response:', response.data);
       
-      if (response.data.success) {
-        toast.success('Placement algorithm completed successfully!', { id: 'placement' });
+      if (response.data?.success) {
+        const placedCount = response.data.containers?.reduce((count, container) => 
+          count + (container.items?.length || 0), 0) || 0;
+        const unplacedCount = response.data.unplaced_items?.length || 0;
+        
+        toast.success(`Placement algorithm completed successfully! ${placedCount} items placed, ${unplacedCount} items unplaced.`, { id: 'placement' });
+      } else if (Array.isArray(response.data)) {
+        toast.success(`Placement algorithm completed successfully! ${response.data.length} items processed.`, { id: 'placement' });
       } else {
-        toast.error(`Algorithm failed: ${response.data.message || 'Unknown error'}`, { id: 'placement' });
+        toast.error(`Algorithm returned unexpected data format: ${JSON.stringify(response.data).substring(0, 100)}...`, { id: 'placement' });
       }
     } catch (error) {
       console.error('Error running algorithm:', error);
@@ -60,7 +66,7 @@ const Home = () => {
     toast.loading('Truncating database...', { id: 'truncate' });
     
     try {
-      const response = await fetch('http://localhost:8003/api/truncate-database', {
+      const response = await fetch('http://localhost:8000/api/truncate-database', {
         method: 'POST',
       });
       
@@ -142,7 +148,7 @@ const Home = () => {
                     : 'bg-green-800/50 text-green-400 hover:bg-green-700/50'
                 } transition-colors`}
               >
-                <Play className="h-4 w-4 mr-2" />
+                {loading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
                 {loading ? 'Running Algorithm...' : 'Run Placement Algorithm'}
               </button>
               

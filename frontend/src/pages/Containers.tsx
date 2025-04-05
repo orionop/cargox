@@ -49,7 +49,7 @@ const ContainersPage = () => {
       try {
         console.log('Fetching containers...');
         // Try to access API directly first for debugging
-        const checkResponse = await fetch('http://localhost:8003/api/containers');
+        const checkResponse = await fetch('http://localhost:8000/api/containers');
         const checkData = await checkResponse.json();
         console.log('Direct fetch response:', checkData);
         

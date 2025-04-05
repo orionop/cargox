@@ -7,12 +7,27 @@ interface RearrangementItem {
   item_name: string;
   from_container: string;
   to_container: string;
+  reason?: string;
+}
+
+interface SuggestedMove {
+  item_id: string;
+  from_container: string;
+  suggested_containers: string[];
+  reason: string;
+}
+
+interface DisorganizedContainer {
+  container_id: string;
+  efficiency: number;
+  accessibility_issues: number;
+  items_count: number;
 }
 
 interface RearrangementSuggestion {
-  full_containers: string[];
-  moveable_items_count: number;
-  rearrangement_plan: RearrangementItem[];
+  suggested_moves: SuggestedMove[];
+  disorganized_containers: DisorganizedContainer[];
+  reason: string;
 }
 
 interface RearrangementResult {
@@ -27,6 +42,7 @@ const RearrangePage = () => {
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<RearrangementSuggestion | null>(null);
   const [executionResult, setExecutionResult] = useState<RearrangementResult | null>(null);
+  const [rearrangementPlan, setRearrangementPlan] = useState<RearrangementItem[]>([]);
 
   const fetchSuggestions = async () => {
     setLoading(true);
@@ -35,7 +51,26 @@ const RearrangePage = () => {
     
     try {
       const data = await getRearrangementSuggestions();
+      console.log("Rearrangement suggestions:", data);
       setSuggestions(data);
+      
+      // Convert suggested_moves to rearrangement_plan format
+      if (data.suggested_moves && Array.isArray(data.suggested_moves)) {
+        const plan = data.suggested_moves.map(move => ({
+          item_id: move.item_id,
+          item_name: move.item_id, // Use the ID as the name if no name is provided
+          from_container: move.from_container,
+          to_container: move.suggested_containers[0], // Use the first suggested container
+          reason: move.reason
+        }));
+        
+        setRearrangementPlan(plan);
+      } else if (data.rearrangement_plan && Array.isArray(data.rearrangement_plan)) {
+        // Fallback to old format if present
+        setRearrangementPlan(data.rearrangement_plan);
+      } else {
+        setRearrangementPlan([]);
+      }
     } catch (err) {
       console.error('Error fetching rearrangement suggestions:', err);
       setError('Failed to load rearrangement suggestions');
@@ -45,7 +80,7 @@ const RearrangePage = () => {
   };
 
   const handleExecutePlan = async () => {
-    if (!suggestions || !suggestions.rearrangement_plan.length) {
+    if (!rearrangementPlan || !rearrangementPlan.length) {
       return;
     }
     
@@ -53,7 +88,7 @@ const RearrangePage = () => {
     setError(null);
     
     try {
-      const result = await executeRearrangementPlan(suggestions.rearrangement_plan);
+      const result = await executeRearrangementPlan(rearrangementPlan);
       setExecutionResult(result);
       
       // Refresh suggestions after execution
@@ -69,6 +104,30 @@ const RearrangePage = () => {
   useEffect(() => {
     fetchSuggestions();
   }, []);
+
+  // Helper function to determine if there are any rearrangement suggestions
+  const hasRearrangementSuggestions = () => {
+    if (!suggestions) return false;
+    
+    // Check for new format
+    if (suggestions.suggested_moves) {
+      return suggestions.suggested_moves.length > 0;
+    }
+    // Fallback to old format
+    return false;
+  };
+
+  // Helper function to determine if there are any disorganized containers
+  const hasDisorganizedContainers = () => {
+    if (!suggestions) return false;
+    
+    // Check for new format
+    if (suggestions.disorganized_containers) {
+      return suggestions.disorganized_containers.length > 0;
+    }
+    // Fallback to old format
+    return false;
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-4">
@@ -123,7 +182,7 @@ const RearrangePage = () => {
           <p className="text-red-400 mb-2">{error}</p>
           <p className="text-xs text-gray-400">ERROR CODE: CARGO-REARRANGE-001</p>
         </div>
-      ) : !suggestions || (suggestions.rearrangement_plan.length === 0 && suggestions.full_containers.length === 0) ? (
+      ) : !suggestions || (!hasRearrangementSuggestions() && !hasDisorganizedContainers()) ? (
         <div className="border border-yellow-500/30 bg-yellow-900/10 rounded-md p-6 text-center">
           <Info className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
           <p className="text-yellow-400 mb-2">NO REARRANGEMENT NEEDED</p>
@@ -136,18 +195,18 @@ const RearrangePage = () => {
               <div className="text-green-400 text-sm font-bold mb-3">{'// CONTAINER STATUS'}</div>
               <div className="space-y-4">
                 <div>
-                  <div className="text-xs text-gray-500 mb-1">FULL OR NEARLY FULL CONTAINERS</div>
-                  {suggestions.full_containers.length > 0 ? (
-                    <div className="bg-red-900/20 border border-red-900/30 rounded p-2">
-                      {suggestions.full_containers.map((container, index) => (
-                        <span key={container} className="inline-block bg-black/40 text-red-400 text-xs px-2 py-1 rounded mr-2 mb-2">
-                          {container}
+                  <div className="text-xs text-gray-500 mb-1">DISORGANIZED CONTAINERS</div>
+                  {hasDisorganizedContainers() ? (
+                    <div className="bg-orange-900/20 border border-orange-900/30 rounded p-2">
+                      {suggestions.disorganized_containers.map((container) => (
+                        <span key={container.container_id} className="inline-block bg-black/40 text-orange-400 text-xs px-2 py-1 rounded mr-2 mb-2">
+                          {container.container_id} (Efficiency: {Math.round(container.efficiency * 100)}%)
                         </span>
                       ))}
                     </div>
                   ) : (
                     <div className="bg-green-900/20 border border-green-900/30 rounded p-2 text-green-400 text-xs">
-                      No containers at capacity
+                      No disorganized containers detected
                     </div>
                   )}
                 </div>
@@ -155,7 +214,14 @@ const RearrangePage = () => {
                 <div>
                   <div className="text-xs text-gray-500 mb-1">MOVEABLE ITEMS</div>
                   <div className="text-green-400">
-                    {suggestions.moveable_items_count} low-priority items can be relocated
+                    {rearrangementPlan.length} items can be optimally relocated
+                  </div>
+                </div>
+                
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">OVERALL REASON</div>
+                  <div className="text-green-400">
+                    {suggestions.reason || "Container optimization"}
                   </div>
                 </div>
               </div>
@@ -166,24 +232,34 @@ const RearrangePage = () => {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <div className="text-xs text-gray-500">SUGGESTED MOVES:</div>
-                  <div className="text-green-400">{suggestions.rearrangement_plan.length}</div>
+                  <div className="text-green-400">{rearrangementPlan.length}</div>
                 </div>
                 <div className="flex justify-between">
                   <div className="text-xs text-gray-500">OPTIMIZATION STATUS:</div>
-                  <div className={suggestions.rearrangement_plan.length > 0 ? "text-yellow-400" : "text-green-400"}>
-                    {suggestions.rearrangement_plan.length > 0 ? "OPTIMIZATION AVAILABLE" : "FULLY OPTIMIZED"}
+                  <div className={rearrangementPlan.length > 0 ? "text-yellow-400" : "text-green-400"}>
+                    {rearrangementPlan.length > 0 ? "OPTIMIZATION AVAILABLE" : "FULLY OPTIMIZED"}
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <div className="text-xs text-gray-500">PRIMARY ISSUE:</div>
+                  <div className="text-orange-400">
+                    {hasDisorganizedContainers()
+                      ? "ACCESS OPTIMIZATION NEEDED" 
+                      : hasRearrangementSuggestions()
+                        ? "POSITION OPTIMIZATION NEEDED" 
+                        : "NO CRITICAL ISSUES"}
                   </div>
                 </div>
               </div>
             </div>
           </div>
           
-          {suggestions.rearrangement_plan.length > 0 && (
+          {rearrangementPlan.length > 0 && (
             <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="text-green-400 text-sm font-bold">{'// REARRANGEMENT PLAN'}</div>
                 <div className="px-2 py-1 bg-green-900/20 text-green-500 text-xs rounded border border-green-500/20">
-                  {suggestions.rearrangement_plan.length} MOVES
+                  {rearrangementPlan.length} MOVES
                 </div>
               </div>
               
@@ -192,16 +268,15 @@ const RearrangePage = () => {
                   <thead className="text-gray-500 border-b border-gray-800">
                     <tr>
                       <th className="text-left py-2">ITEM ID</th>
-                      <th className="text-left py-2">ITEM NAME</th>
                       <th className="text-left py-2">CURRENT LOCATION</th>
                       <th className="text-left py-2">TARGET LOCATION</th>
+                      <th className="text-left py-2">REASON</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {suggestions.rearrangement_plan.map((move, index) => (
+                    {rearrangementPlan.map((move, index) => (
                       <tr key={index} className="border-b border-gray-900">
                         <td className="py-2 text-green-400">{move.item_id}</td>
-                        <td className="py-2 text-gray-400">{move.item_name}</td>
                         <td className="py-2">
                           <span className="px-1.5 py-0.5 bg-red-900/20 text-red-400 rounded text-xs">
                             {move.from_container}
@@ -212,6 +287,9 @@ const RearrangePage = () => {
                           <span className="px-1.5 py-0.5 bg-green-900/20 text-green-400 rounded text-xs">
                             {move.to_container}
                           </span>
+                        </td>
+                        <td className="py-2 text-xs text-orange-300">
+                          {move.reason || "Container balancing"}
                         </td>
                       </tr>
                     ))}

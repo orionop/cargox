@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8003';
+const API_BASE_URL = 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -33,7 +33,9 @@ export const fetchContainers = async (containerId?: string, containerType?: stri
 };
 
 export const runPlacementAlgorithm = async () => {
-  return api.post('/api/placement');
+  return api.post('/api/placement', {}, {
+    timeout: 30000 // 30 seconds timeout
+  });
 };
 
 export const retrieveItem = async (itemId: string, userId: string = 'system') => {
