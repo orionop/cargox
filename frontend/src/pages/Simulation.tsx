@@ -70,12 +70,36 @@ const Simulation = () => {
     setCurrentDay(0);
     
     try {
-      // For each day, run the simulation with the usage plan
+      // Set animation duration to exactly 3 seconds
+      const animationDuration = 3000; // 3 seconds in milliseconds
+      const dayUpdateInterval = animationDuration / daysToSimulate;
+      
+      // Start the countdown animation
+      const startTime = Date.now();
+      
+      // For each day, update the UI
+      for (let i = 0; i < daysToSimulate; i++) {
+        // Calculate the elapsed time
+        const elapsed = Date.now() - startTime;
+        // Calculate how long to wait for next update
+        const targetTime = (i + 1) * dayUpdateInterval;
+        // Wait for the appropriate time if needed
+        if (elapsed < targetTime) {
+          await new Promise(resolve => setTimeout(resolve, targetTime - elapsed));
+        }
+        
+        setCurrentDay(i + 1);
+      }
+      
+      // Wait for animation to complete if needed
+      const totalElapsed = Date.now() - startTime;
+      if (totalElapsed < animationDuration) {
+        await new Promise(resolve => setTimeout(resolve, animationDuration - totalElapsed));
+      }
+      
+      // Now run the actual simulation without delays
       let currentResult: SimulationResult | null = null;
       for (let i = 0; i < daysToSimulate; i++) {
-        setCurrentDay(i + 1);
-        // Add a delay between days
-        await new Promise(resolve => setTimeout(resolve, 400));
         const response = await simulateDay(usagePlan);
         if (!response.success) {
           throw new Error(response.message || 'Failed to simulate day');
@@ -110,16 +134,16 @@ const Simulation = () => {
       {showCountdown && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-gray-900/90 border border-green-500/30 p-8 rounded-lg shadow-xl text-center">
-            <div className="text-6xl font-mono text-green-500 mb-4 animate-pulse" style={{ animationDuration: '1.5s' }}>
+            <div className="text-6xl font-mono text-green-500 mb-4 animate-pulse" style={{ animationDuration: '1s' }}>
               DAY {currentDay} / {daysToSimulate}
             </div>
-            <div className="text-gray-400 text-sm font-mono animate-pulse" style={{ animationDuration: '2s' }}>
+            <div className="text-gray-400 text-sm font-mono animate-pulse" style={{ animationDuration: '1s' }}>
               SIMULATING TIME PROGRESSION...
             </div>
             <div className="mt-4">
               <div className="w-64 h-1 bg-gray-700 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-green-500 transition-all duration-1000"
+                  className="h-full bg-green-500 transition-all duration-300"
                   style={{ width: `${(currentDay / daysToSimulate) * 100}%` }}
                 ></div>
               </div>

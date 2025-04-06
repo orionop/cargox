@@ -110,10 +110,21 @@ export interface WasteReturnMove {
 export interface WasteReturnPlan {
   success: boolean;
   message: string;
-  total_waste_mass: number;
-  target_zone: string;
+  placed_count: number;
+  unplaced_count: number;
   waste_containers: string[];
-  return_plan: WasteReturnMove[];
+  placement_plan: {
+    item_id: string;
+    item_name: string;
+    container_id: string | null;
+    position: {
+      x: number;
+      y: number;
+      z: number;
+    } | null;
+    orientation: [number, number, number] | null;
+    error?: string;
+  }[];
 }
 
 export interface UsageItem {
@@ -152,6 +163,12 @@ export interface LogsResponse {
   success: boolean;
   count: number;
   logs: LogEntry[];
+}
+
+export interface WastePlacementExecutionResult {
+  success: boolean;
+  message: string;
+  items_placed: number;
 }
 
 // Function declarations
@@ -222,4 +239,5 @@ export function executeRearrangementPlan(rearrangementPlan: Array<{
     success: boolean;
     message: string;
   }>;
-}>; 
+}>;
+export function executeWastePlacementPlan(plan: WasteReturnPlan): Promise<WastePlacementExecutionResult>; 

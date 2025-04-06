@@ -2,13 +2,13 @@ item_id,name,width_cm,depth_cm,height_cm,mass_kg,priority,expiry_date,usage_limi
 000001,Research_Samples,26.8,17.5,19.4,2.4,84,N/A,2304,Storage_Bay
 000002,LED_Work_Light,49.9,36.3,44.2,40.03,90,N/A,3558,Maintenance_Bay
 000003,Pressure_Regulator,48.1,33.2,43.1,34.41,16,N/A,1075,Airlock
-000004,Emergency_Oxygen_Mask,15.6,46.5,17.0,6.17,42,N/A,709,Medical_Bay
+000004,Emergency_Oxygen_Mask,15.6,46.5,17.0,6.17,42,2025-04-08,709,Medical_Bay
 000005,Battery_Pack,23.2,31.6,18.2,6.67,93,N/A,175,External_Storage
 000006,Laptop,11.5,39.7,46.0,10.5,60,N/A,2333,Command_Center
 000007,Emergency_Oxygen_Mask,17.6,15.1,24.9,3.31,5,N/A,3783,Medical_Bay
 000008,CO2_Scrubber,39.2,13.0,36.7,9.35,92,N/A,144,Life_Support
 000009,Emergency_Oxygen_Mask,31.3,16.5,33.9,8.75,20,N/A,4702,Crew_Quarters
-000010,Food_Packet,15.7,18.6,29.4,9.3,41,2025-10-23,11,Storage_Bay
+000010,Food_Packet,15.7,18.6,29.4,9.3,41,2025-10-23,13,Storage_Bay
 000011,EV_Suit_Battery,11.3,31.8,43.7,7.85,94,N/A,975,Storage_Bay
 000012,Seed_Packets,26.0,18.1,11.5,6.9,39,N/A,5,Greenhouse
 000013,Tether_Reel,32.7,35.6,48.0,27.94,76,N/A,4670,Airlock

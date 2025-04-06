@@ -114,7 +114,7 @@ const ContainersPage = () => {
             
             // Add position coordinates if available
             if (item.position) {
-              csvContent += `${item.position.x},${item.position.y},${item.position.z}`;
+              csvContent += `${item.position.x.toFixed(2)},${item.position.y.toFixed(2)},${item.position.z.toFixed(2)}`;
             } else {
               csvContent += ',,,'; // Empty coordinates
             }
@@ -312,7 +312,7 @@ const ContainersPage = () => {
                               <td className="py-2 text-gray-400">{item.id}</td>
                               <td className="py-2 text-green-400">{item.name}</td>
                               <td className="py-2 text-gray-400">
-                                {item.position ? `${item.position.x}, ${item.position.y}, ${item.position.z}` : "N/A"}
+                                {item.position ? `${item.position.x.toFixed(2)}, ${item.position.y.toFixed(2)}, ${item.position.z.toFixed(2)}` : "N/A"}
                               </td>
                               <td className="py-2">
                                 <span className="px-1.5 py-0.5 bg-green-900/20 text-green-500 rounded text-xs">

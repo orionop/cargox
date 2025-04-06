@@ -1657,139 +1657,25 @@ async def api_waste_return_plan(
     db: Session = Depends(get_db_with_fallback)
 ):
     try:
-        target_zone = body.get("targetZone", "W")
+        target_zone = body.get("zoneId", "W")
         
-        # Mock data for testing
-        if isinstance(db, MockDB):
-            return {
-                "success": True,
-                "message": "Generated waste return plan for 1 item (MOCK DATA)",
-                "total_waste_mass": 5.0,
-                "target_zone": target_zone,
-                "waste_containers": ["wasteContainer"],
-                "return_plan": [{
-                    "item_id": "mockWaste001",
-                    "item_name": "Expired Item",
-                    "weight": 5.0,
-                    "source_container": {
-                        "id": "mockContainer",
-                        "zone": "A"
-                    },
-                    "target_container": {
-                        "id": "wasteContainer",
-                        "zone": target_zone
-                    }
-                }]
-            }
+        # Initialize the placement service
+        placement_service = PlacementService(db)
         
-        # Check target zone validity - more flexible approach
-        logger.info(f"Checking for waste containers in zone '{target_zone}'")
-        
-        # Try exact match first
-        waste_containers = db.query(Container).filter(
-            Container.container_type.ilike("%waste%"),
-            Container.zone == target_zone
-        ).all()
-        
-        # If nothing found, try with trailing space (common mistake in data)
-        if not waste_containers:
-            waste_containers = db.query(Container).filter(
-                Container.container_type.ilike("%waste%"),
-                Container.zone == f"{target_zone} "
-            ).all()
-            
-        # If still nothing, try case-insensitive partial match
-        if not waste_containers:
-            waste_containers = db.query(Container).filter(
-                Container.container_type.ilike("%waste%"),
-                Container.zone.ilike(f"%{target_zone}%")
-            ).all()
-        
-        if not waste_containers:
-            logger.warning(f"No waste containers found in zone {target_zone}")
-            return {
-                "success": False,
-                "message": f"No waste containers found in zone {target_zone}",
-                "total_waste_mass": 0.0,
-                "target_zone": target_zone,
-                "waste_containers": [],
-                "return_plan": []
-            }
-            
-        # Log found containers
-        logger.info(f"Found {len(waste_containers)} waste containers: {[c.id for c in waste_containers]}")
-        
-        # Get all waste items that need to be returned
-        waste_items = db.query(Item).filter(Item.is_waste == True).all()
-        
-        if not waste_items:
-            logger.info(f"No waste items to return")
-            return {
-                "success": True,
-                "message": "No waste items to return",
-                "total_waste_mass": 0.0,
-                "target_zone": target_zone,
-                "waste_containers": [container.id for container in waste_containers],
-                "return_plan": []
-            }
-        
-        # Calculate total waste mass
-        total_waste_mass = sum(item.weight for item in waste_items)
-        
-        # Create return plan
-        return_plan = []
-        for item in waste_items:
-            # Find source container for placed items
-            source_container = None
-            if item.container_id:
-                source_container = db.query(Container).filter(Container.id == item.container_id).first()
-            
-            # For simplicity, assign to first waste container (could be optimized further)
-            target_container = waste_containers[0]
-            
-            return_plan.append({
-                "item_id": item.id,
-                "item_name": item.name,
-                "weight": item.weight,
-                "source_container": {
-                    "id": source_container.id,
-                    "zone": source_container.zone
-                } if source_container else None,
-                "target_container": {
-                    "id": target_container.id,
-                    "zone": target_container.zone
-                }
-            })
+        # Generate waste placement plan
+        result = placement_service.generate_waste_placement_plan(target_zone)
         
         # Log the action
-        try:
-            log_action(
-                db, 
-                "waste_return_plan", 
-                None, 
-                None, 
-                "system",
-                f"Generated waste return plan for {len(waste_items)} items to zone {target_zone}"
-            )
-        except Exception as log_error:
-            logger.warning(f"Could not log action: {str(log_error)}")
+        log_action(db, "waste_placement", None, None, "system", 
+                  f"Generated waste placement plan for {result.get('placed_count', 0)} items")
         
-        return {
-            "success": True,
-            "message": f"Generated waste return plan for {len(waste_items)} items",
-            "total_waste_mass": total_waste_mass,
-            "target_zone": target_zone,
-            "waste_containers": [container.id for container in waste_containers],
-            "return_plan": return_plan
-        }
+        return result
     
     except Exception as e:
-        logger.error(f"Error generating waste return plan: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Error generating waste placement plan: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating waste return plan: {str(e)}"
+            detail=f"Error generating waste placement plan: {str(e)}"
         )
 
 @app.post("/api/waste/complete-undocking")
@@ -2329,6 +2215,83 @@ async def truncate_database(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error truncating database: {str(e)}"
+        )
+
+@app.post("/api/waste/execute-placement")
+async def execute_waste_placement(
+    body: dict = Body({}),
+    db: Session = Depends(get_db_with_fallback)
+):
+    try:
+        placement_plan = body.get("placement_plan", [])
+        
+        if not placement_plan:
+            return {
+                "success": False,
+                "message": "No placement plan provided",
+                "items_placed": 0
+            }
+        
+        # Track successfully placed items
+        items_placed = 0
+        
+        # Apply the placement plan to the database
+        for entry in placement_plan:
+            # Skip items that couldn't be placed
+            if not entry.get("container_id"):
+                continue
+                
+            item_id = entry.get("item_id")
+            container_id = entry.get("container_id")
+            position = entry.get("position")
+            orientation = entry.get("orientation")
+            
+            # Get the item
+            item = db.query(Item).filter(Item.id == item_id).first()
+            if not item:
+                logger.warning(f"Item {item_id} not found, skipping")
+                continue
+                
+            # Get the container
+            container = db.query(Container).filter(Container.id == container_id).first()
+            if not container:
+                logger.warning(f"Container {container_id} not found, skipping")
+                continue
+                
+            # Update the item with the placement data
+            if position:
+                item.position_x = position.get("x")
+                item.position_y = position.get("y")
+                item.position_z = position.get("z")
+                
+            if orientation:
+                item.width = orientation[0]
+                item.height = orientation[1]
+                item.depth = orientation[2]
+                
+            item.container_id = container_id
+            item.is_placed = True
+            
+            items_placed += 1
+        
+        # Commit the changes
+        db.commit()
+        
+        # Log the action
+        log_action(db, "waste_placement_execution", None, None, "system", 
+                   f"Executed waste placement plan for {items_placed} items")
+        
+        return {
+            "success": True,
+            "message": f"Successfully placed {items_placed} waste items according to plan",
+            "items_placed": items_placed
+        }
+        
+    except Exception as e:
+        logger.error(f"Error executing waste placement plan: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error executing waste placement plan: {str(e)}"
         )
 
 # Run the application

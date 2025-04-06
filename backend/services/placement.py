@@ -998,4 +998,113 @@ class PlacementService:
             "items_expired": [item.id for item in newly_expired],
             "items_fully_used": [item.id for item in newly_used_up],
             "new_waste_items": new_waste_items
+        }
+
+    def generate_waste_placement_plan(self, target_zone: str = "W") -> Dict[str, Any]:
+        """
+        Generate a plan for placing waste items in waste containers.
+        
+        Args:
+            target_zone: The zone where waste containers are located
+            
+        Returns:
+            Dictionary with placement plan details
+        """
+        # Get all waste items that are not yet placed
+        waste_items = self.db.query(Item).filter(
+            Item.is_waste == True,
+            Item.is_placed == False
+        ).all()
+        
+        if not waste_items:
+            return {
+                "success": True,
+                "message": "No unplaced waste items found",
+                "placed_count": 0,
+                "unplaced_count": 0,
+                "waste_containers": [],
+                "placement_plan": []
+            }
+        
+        # Get waste containers in the target zone
+        waste_containers = self.db.query(Container).filter(
+            Container.container_type.ilike("%waste%"),
+            Container.zone == target_zone
+        ).all()
+        
+        if not waste_containers:
+            return {
+                "success": False,
+                "message": f"No waste containers found in zone {target_zone}",
+                "placed_count": 0,
+                "unplaced_count": len(waste_items),
+                "waste_containers": [],
+                "placement_plan": []
+            }
+        
+        # Sort waste items by volume efficiency
+        sorted_items = sorted(waste_items, key=lambda i: self._calculate_volume_efficiency(i))
+        
+        # Track container utilization
+        container_utilization = {container.id: 0 for container in waste_containers}
+        placement_plan = []
+        
+        # Try to place each waste item
+        for item in sorted_items:
+            placed = False
+            
+            # Try each waste container
+            for container in waste_containers:
+                # Skip if container is at capacity
+                if container_utilization[container.id] >= container.capacity:
+                    continue
+                
+                # Try to find a position for the item
+                position, orientation = self._find_position_with_rotation(
+                    container,
+                    item,
+                    [i for i in container.items if i.is_placed],
+                    prioritize_access=False  # For waste, we don't need to prioritize access
+                )
+                
+                if position:
+                    # Add to placement plan
+                    placement_plan.append({
+                        "item_id": item.id,
+                        "item_name": item.name,
+                        "container_id": container.id,
+                        "position": {
+                            "x": position[0],
+                            "y": position[1],
+                            "z": position[2]
+                        },
+                        "orientation": orientation if orientation else (item.width, item.height, item.depth)
+                    })
+                    
+                    container_utilization[container.id] += 1
+                    placed = True
+                    break
+            
+            if not placed:
+                # Item couldn't be placed in any container
+                placement_plan.append({
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "container_id": None,
+                    "position": None,
+                    "orientation": None,
+                    "error": "No suitable container found"
+                })
+        
+        # Count placed and unplaced items
+        placed_count = sum(1 for p in placement_plan if p["container_id"] is not None)
+        unplaced_count = len(placement_plan) - placed_count
+        
+        return {
+            "success": True,
+            "message": f"Generated waste placement plan: {placed_count} items can be placed, {unplaced_count} items unplaced",
+            "placed_count": placed_count,
+            "unplaced_count": unplaced_count,
+            "waste_containers": [c.id for c in waste_containers],
+            "placement_plan": placement_plan
         } 

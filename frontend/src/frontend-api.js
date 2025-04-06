@@ -77,10 +77,13 @@ export async function retrieveItem(itemId) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
     const data = await response.json();
+    console.log('Item search response:', data);
     
     // Construct a result object compatible with the retrieve page expectations
     if (data && data.items && data.items.length > 0) {
       const item = data.items[0];
+      console.log('Item position data:', item.position || { x: item.position_x, y: item.position_y, z: item.position_z });
+      
       return {
         found: true,
         item_id: item.id,
@@ -88,10 +91,10 @@ export async function retrieveItem(itemId) {
         disturbed_items: [],
         location: item.is_placed ? {
           container: item.container_id,
-          position: {
-            x: item.position_x,
-            y: item.position_y,
-            z: item.position_z
+          position: item.position || {
+            x: item.position_x || 0,
+            y: item.position_y || 0,
+            z: item.position_z || 0
           }
         } : null,
         retrieval_time: new Date().toISOString(),
@@ -490,6 +493,30 @@ export async function getAllItems() {
     return await response.json();
   } catch (error) {
     console.error('Error fetching all items:', error);
+    throw error;
+  }
+}
+
+/**
+ * Execute the waste placement plan by saving it to the database
+ * @param {Object} plan - The waste placement plan to execute
+ * @returns {Promise<Object>} - Result of the execution
+ */
+export async function executeWastePlacementPlan(plan) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/waste/execute-placement`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        placement_plan: plan.placement_plan
+      }),
+    });
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error executing waste placement plan:', error);
     throw error;
   }
 } 

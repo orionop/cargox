@@ -309,7 +309,7 @@ const RetrievePage = () => {
                             <div>
                               <div className="text-xs text-gray-500">POSITION (X,Y,Z)</div>
                               <div className="text-green-400 font-mono">
-                                {`${locatedItem.location.position.x}, ${locatedItem.location.position.y}, ${locatedItem.location.position.z}`}
+                                {`${locatedItem.location.position.x.toFixed(2)}, ${locatedItem.location.position.y.toFixed(2)}, ${locatedItem.location.position.z.toFixed(2)}`}
                               </div>
                             </div>
                           </div>

@@ -1,9 +1,18 @@
 import { useState, useEffect } from 'react';
-import { identifyWaste, generateWasteReturnPlan, getContainers, WasteItem, WasteReturnPlan } from '../frontend-api';
+import { 
+  identifyWaste, 
+  generateWasteReturnPlan, 
+  executeWastePlacementPlan,
+  getContainers, 
+  WasteItem, 
+  WasteReturnPlan,
+  WastePlacementExecutionResult
+} from '../frontend-api';
 
 const Waste = () => {
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
   const [returnPlan, setReturnPlan] = useState<WasteReturnPlan | null>(null);
+  const [executionResult, setExecutionResult] = useState<WastePlacementExecutionResult | null>(null);
   const [targetZone, setTargetZone] = useState<string>('Storage_Bay');
   const [availableZones, setAvailableZones] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -126,11 +135,33 @@ const Waste = () => {
   const generatePlan = async () => {
     setIsLoading(true);
     setError(null);
+    setExecutionResult(null);
     try {
       const plan = await generateWasteReturnPlan(targetZone);
       setReturnPlan(plan);
     } catch (err) {
       setError('Failed to generate waste return plan');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const executePlan = async () => {
+    if (!returnPlan) return;
+    
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await executeWastePlacementPlan(returnPlan);
+      setExecutionResult(result);
+      
+      // If the execution was successful, refresh the waste items list
+      if (result.success) {
+        await fetchWasteItems();
+      }
+    } catch (err) {
+      setError('Failed to execute waste placement plan');
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -229,51 +260,92 @@ const Waste = () => {
           )}
         </div>
         
-        <button 
-          onClick={generatePlan}
-          className="bg-black/40 hover:bg-black/60 border border-green-500/30 text-green-400 px-4 py-2 rounded-md transition duration-200 ease-in-out transform hover:scale-105 font-mono text-sm"
-          disabled={isLoading}
-        >
-          {isLoading ? 'GENERATING...' : 'GENERATE_RETURN_PLAN'}
-        </button>
+        <div className="flex space-x-3">
+          <button 
+            onClick={generatePlan}
+            className="bg-black/40 hover:bg-black/60 border border-green-500/30 text-green-400 px-4 py-2 rounded-md transition duration-200 ease-in-out transform hover:scale-105 font-mono text-sm"
+            disabled={isLoading}
+          >
+            {isLoading ? 'GENERATING...' : 'GENERATE_RETURN_PLAN'}
+          </button>
+          
+          {returnPlan && !executionResult && (
+            <button 
+              onClick={executePlan}
+              className="bg-black/40 hover:bg-black/60 border border-green-500/30 text-green-400 px-4 py-2 rounded-md transition duration-200 ease-in-out transform hover:scale-105 font-mono text-sm"
+              disabled={isLoading}
+            >
+              {isLoading ? 'EXECUTING...' : 'EXECUTE_PLAN'}
+            </button>
+          )}
+        </div>
         
         {returnPlan && (
           <div className="mt-6 bg-black/40 p-4 rounded border border-green-500/10">
             <h3 className="text-sm font-mono font-medium mb-2 text-green-400">{returnPlan.message}</h3>
-            <p className="text-gray-400 mb-1 text-xs"><span className="text-green-400 font-mono">TOTAL_MASS:</span> {returnPlan.total_waste_mass} kg</p>
-            <p className="text-gray-400 mb-3 text-xs"><span className="text-green-400 font-mono">TARGET_ZONE:</span> {returnPlan.target_zone}</p>
+            
+            {executionResult && (
+              <div className={`p-3 mb-4 rounded border ${executionResult.success ? 'bg-green-900/10 border-green-500/20 text-green-400' : 'bg-red-900/10 border-red-500/20 text-red-400'} font-mono text-xs`}>
+                <div className="flex items-center">
+                  <div className={`w-2 h-2 ${executionResult.success ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
+                  <span className="font-bold">EXECUTION_STATUS:</span>
+                </div>
+                <p className="mt-1">{executionResult.message}</p>
+                {executionResult.success && (
+                  <p className="mt-1">Successfully placed {executionResult.items_placed} items</p>
+                )}
+              </div>
+            )}
+            
+            <p className="text-gray-400 mb-1 text-xs">
+              <span className="text-green-400 font-mono">PLACED:</span> {returnPlan.placed_count}
+              <span className="mx-2">|</span>
+              <span className="text-green-400 font-mono">UNPLACED:</span> {returnPlan.unplaced_count}
+            </p>
             
             <h4 className="font-mono text-green-400 mt-4 mb-2 text-xs">WASTE_CONTAINERS:</h4>
             <div className="flex flex-wrap gap-2 mb-4">
               {returnPlan.waste_containers.map((container, index) => (
-                <span key={index} className="bg-green-900/10 text-green-300 px-3 py-1 rounded-md border border-green-500/20 font-mono text-xs">{container}</span>
+                <span key={index} className="bg-green-900/10 text-green-300 px-3 py-1 rounded-md border border-green-500/20 font-mono text-xs">
+                  {container}
+                </span>
               ))}
             </div>
             
-            <h4 className="font-mono text-green-400 mt-4 mb-2 text-xs">RETURN_PLAN:</h4>
-            {returnPlan.return_plan.length > 0 ? (
+            <h4 className="font-mono text-green-400 mt-4 mb-2 text-xs">PLACEMENT_PLAN:</h4>
+            {returnPlan.placement_plan.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="min-w-full bg-black/25 border border-green-500/10">
                   <thead>
                     <tr className="bg-green-900/10">
                       <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ITEM</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">WEIGHT</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">SOURCE</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">TARGET</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">CONTAINER</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">POSITION</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {returnPlan.return_plan.map((item, index) => (
+                    {returnPlan.placement_plan.map((item, index) => (
                       <tr key={index} className="border-b border-green-500/10 hover:bg-green-900/5">
                         <td className="border border-green-500/10 px-4 py-2 text-green-300 font-mono text-xs">
                           {item.item_id} - <span className="text-gray-400">{item.item_name}</span>
                         </td>
-                        <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{item.weight} kg</td>
                         <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">
-                          {item.source_container.id} <span className="text-gray-500">(Zone {item.source_container.zone})</span>
+                          {item.container_id || 'No container'}
                         </td>
                         <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">
-                          {item.target_container.id} <span className="text-gray-500">(Zone {item.target_container.zone})</span>
+                          {item.position ? (
+                            `(${item.position.x.toFixed(2)}, ${item.position.y.toFixed(2)}, ${item.position.z.toFixed(2)})`
+                          ) : (
+                            'No position'
+                          )}
+                        </td>
+                        <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">
+                          {item.error ? (
+                            <span className="text-red-400">{item.error}</span>
+                          ) : (
+                            <span className="text-green-400">Ready to place</span>
+                          )}
                         </td>
                       </tr>
                     ))}
