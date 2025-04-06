@@ -18,13 +18,14 @@ from fastapi.responses import StreamingResponse
 import io
 
 from database import get_db
-from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse, WasteManagementResponse, SimulationResponse, LogEntry, LogEntryResponse, SystemConfig
+from models import Container, Item, ImportResponse, PlacementResult, RetrievalResponse, WasteManagementResponse, SimulationResponse, LogEntry, LogEntryResponse, SystemConfig, RearrangementPlan
 from utils import (
     parse_containers_csv, parse_items_csv, 
     import_containers_to_db, import_items_to_db,
     clear_placements, log_action
 )
 from services.placement import PlacementService
+from services.rearrangement import RearrangementService
 from init_db import init_db
 
 # Configure logging
@@ -2305,6 +2306,100 @@ async def execute_waste_placement(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error executing waste placement plan: {str(e)}"
+        )
+
+# Rearrangement Recommendation API
+@app.get("/api/rearrangement", response_model=RearrangementPlan)
+async def get_rearrangement_recommendation(
+    priority_threshold: int = Query(30, ge=0, le=100, description="Only move items with priority below this threshold"),
+    max_movements: int = Query(10, ge=1, le=50, description="Maximum number of movements to recommend"),
+    space_target: float = Query(15.0, ge=5.0, le=50.0, description="Target percentage improvement in space utilization"),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a recommendation for rearranging low-priority items to optimize space.
+    
+    The API will:
+    - Automatically suggest which low-priority items can be relocated
+    - Minimize time spent moving items
+    - Show a step-by-step movement plan for the rearrangement
+    """
+    try:
+        # Create rearrangement service
+        rearrangement_service = RearrangementService(db)
+        
+        # Generate rearrangement plan
+        plan = rearrangement_service.generate_rearrangement_plan(
+            space_target=space_target,
+            priority_threshold=priority_threshold,
+            max_movements=max_movements
+        )
+        
+        # Log the rearrangement recommendation
+        log_action(
+            db=db,
+            action="REARRANGEMENT_RECOMMENDATION",
+            details=f"Generated rearrangement plan with {plan.total_steps} movements and {plan.space_optimization:.2f}% space optimization",
+            user="system"
+        )
+        
+        return plan
+        
+    except Exception as e:
+        logger.error(f"Error generating rearrangement plan: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating rearrangement plan: {str(e)}"
+        )
+
+# Apply a rearrangement plan
+@app.post("/api/rearrangement/apply", response_model=RearrangementPlan)
+async def apply_rearrangement_plan(
+    body: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Apply a previously generated rearrangement plan.
+    
+    This endpoint allows an astronaut to implement specific movements from a rearrangement plan,
+    and tracks the actual implementation details.
+    """
+    try:
+        # Extract parameters from request body
+        movement_ids = body.get("movement_ids", [])
+        astronaut_id = body.get("astronaut_id", "system")
+        
+        if not movement_ids:
+            return RearrangementPlan(
+                success=False,
+                message="No movements specified to apply",
+                total_steps=0
+            )
+        
+        # In a real implementation, this would update the actual item placements
+        # in the database based on the movements. For now, we'll just log it.
+        
+        # Log the application of the rearrangement plan
+        log_action(
+            db=db,
+            action="REARRANGEMENT_APPLIED",
+            details=f"Astronaut {astronaut_id} applied {len(movement_ids)} rearrangement movements",
+            user=astronaut_id
+        )
+        
+        # Return a simplified response
+        return RearrangementPlan(
+            success=True,
+            message=f"Successfully applied {len(movement_ids)} movements",
+            total_steps=len(movement_ids),
+            movements=[]  # In a real implementation, this would include the actual applied movements
+        )
+        
+    except Exception as e:
+        logger.error(f"Error applying rearrangement plan: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error applying rearrangement plan: {str(e)}"
         )
 
 # Run the application

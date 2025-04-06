@@ -157,6 +157,28 @@ class SimulationResponse(BaseModel):
     items_expired: List[str] = []
     new_waste_items: List[str] = []
 
+# Rearrangement models
+class RearrangementMovement(BaseModel):
+    step: int
+    item_id: str
+    item_name: str
+    from_container_id: Optional[str] = None
+    to_container_id: str
+    estimated_time: float  # Time in minutes
+    priority: int
+    description: str
+
+class RearrangementPlan(BaseModel):
+    success: bool
+    message: str
+    total_steps: int = 0
+    total_estimated_time: float = 0  # Total time in minutes
+    space_optimization: float = 0  # Percentage improvement in space utilization
+    movements: List[RearrangementMovement] = []
+    low_priority_items_moved: List[str] = []
+    high_priority_items_untouched: List[str] = []
+    disorganized_containers: List[Dict[str, Any]] = []  # List of containers with inefficiency information
+
 # Log entry model
 class LogEntry(Base):
     __tablename__ = "log_entries"
