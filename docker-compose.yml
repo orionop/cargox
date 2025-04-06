@@ -6,8 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
-      - ./backend/logs:/app/logs
+      - backend-logs:/app/logs
     depends_on:
       - postgres
     environment:
@@ -17,8 +16,6 @@ services:
 
   postgres:
     image: postgres:14
-    ports:
-      - "5433:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -52,3 +49,4 @@ networks:
 
 volumes:
   postgres-data: 
+  backend-logs:

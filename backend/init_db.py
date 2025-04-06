@@ -19,11 +19,11 @@ def init_db():
         
         # Drop all tables first to ensure clean state
         logger.info("Dropping existing tables...")
-        Base.metadata.drop_all(bind=engine)
+        # Base.metadata.drop_all(bind=engine)
         
         # Create all tables
         logger.info("Creating tables...")
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine, )
         logger.info("Database tables created successfully")
         
         # Verify tables were created
