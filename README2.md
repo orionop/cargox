@@ -168,7 +168,7 @@ docker compose up -d --build
 #### Get Rearrangement Recommendations
 **Endpoint:** `GET /api/rearrangement`
 
-**Description:** Generates recommendations for rearranging low-priority items to optimize storage space utilization. The API automatically identifies which items can be moved and creates a step-by-step movement plan that minimizes the time required.
+**Description:** Generates recommendations for rearranging low-priority items to optimize storage space utilization. The API automatically identifies which items can be moved and creates a step-by-step movement plan that minimizes the time required. It also identifies containers with inefficient space usage.
 
 **Query Parameters:**
 - `priority_threshold`: Only move items with priority below this threshold (default: 30, range: 0-100)
@@ -203,6 +203,28 @@ docker compose up -d --build
       "estimated_time": 7.2,
       "priority": 22,
       "description": "Move Maintenance Kit from container-8 (Crew) to container-2 (Storage)"
+    }
+  ],
+  "disorganized_containers": [
+    {
+      "container_id": "container-14",
+      "zone": "Lab",
+      "inefficiency_score": 68.7,
+      "volume_utilization": 42.3,
+      "item_count": 8,
+      "high_priority_items": 2,
+      "low_priority_items": 6,
+      "recommended_actions": "Consolidate low priority items"
+    },
+    {
+      "container_id": "container-8",
+      "zone": "Crew",
+      "inefficiency_score": 54.2,
+      "volume_utilization": 38.9,
+      "item_count": 5,
+      "high_priority_items": 1,
+      "low_priority_items": 4,
+      "recommended_actions": "Move low priority items to storage"
     }
   ],
   "low_priority_items_moved": ["item-56", "item-23", "item-78", "item-12", "item-45"],
@@ -240,7 +262,7 @@ docker compose up -d --build
 #### Identify Waste
 **Endpoint:** `GET /api/waste/identify`
 
-**Description:** Identifies items that have been marked for disposal or have exceeded their useful life based on expiration dates and usage patterns.
+**Description:** Identifies items that have been marked for disposal or have exceeded their useful life. This includes both placed and unplaced items that have expired or reached their usage limit.
 
 **Query Parameters:**
 - `expirationBefore`: Filter items expiring before given date (YYYY-MM-DD)
@@ -257,7 +279,8 @@ docker compose up -d --build
       "expirationDate": "2023-01-15",
       "usagePercentage": 100,
       "mass": 0.5,
-      "containerId": "container-5"
+      "containerId": "container-5",
+      "status": "Placed in container-5"
     },
     {
       "itemId": "item-45",
@@ -265,13 +288,23 @@ docker compose up -d --build
       "expirationDate": null,
       "usagePercentage": 98,
       "mass": 2.3,
-      "containerId": "container-2"
+      "containerId": "container-2",
+      "status": "Placed in container-2"
+    },
+    {
+      "itemId": "item-67",
+      "name": "Expired Medical Supply",
+      "expirationDate": "2023-02-10",
+      "usagePercentage": 0,
+      "mass": 1.2,
+      "containerId": null,
+      "status": "Unplaced"
     }
   ],
-  "totalWasteMass": 2.8,
+  "totalWasteMass": 4.0,
   "wasteContainerCapacity": {
     "available": 50.0,
-    "required": 2.8,
+    "required": 4.0,
     "sufficient": true
   }
 }
@@ -377,7 +410,7 @@ docker compose up -d --build
 ### Time Simulation API
 **Endpoint:** `POST /api/simulate/day`
 
-**Description:** Simulates the passage of time in the space station by calculating item usage, expiration, and generating predictions for future cargo needs.
+**Description:** Simulates the passage of time in the space station by calculating item usage, expiration, and generating predictions for future cargo needs. The simulation will mark both placed and unplaced items as waste if they expire during the simulation period.
 
 **Request:**
 ```json
@@ -422,6 +455,22 @@ docker compose up -d --build
         "daysUntilDepletion": 2
       }
     ],
+    "expiredItems": [
+      {
+        "itemId": "item-45",
+        "name": "Medical Supplies",
+        "expiryDate": "2024-05-07",
+        "placementStatus": "Placed",
+        "containerId": "container-3"
+      },
+      {
+        "itemId": "item-67",
+        "name": "Food Package",
+        "expiryDate": "2024-05-08",
+        "placementStatus": "Unplaced",
+        "containerId": null
+      }
+    ],
     "spaceUtilization": {
       "initialPercentage": 76.2,
       "finalPercentage": 73.5,
@@ -450,7 +499,7 @@ docker compose up -d --build
       {
         "type": "WASTE_DISPOSAL",
         "recommendedDate": "2024-05-10T00:00:00Z",
-        "wasteItems": ["item-12", "item-47"]
+        "wasteItems": ["item-12", "item-47", "item-45", "item-67"]
       }
     ]
   }

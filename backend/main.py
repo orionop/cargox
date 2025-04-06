@@ -53,10 +53,28 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     try:
+        logger.info("Initializing database...")
         init_db()
+        
+        # Verify database connection after initialization
+        db = next(get_db())
+        try:
+            # Test query to verify database functionality
+            container_count = db.query(Container).count()
+            item_count = db.query(Item).count()
+            logger.info(f"Database initialized successfully. Current count: {container_count} containers, {item_count} items")
+        except Exception as db_ex:
+            logger.error(f"Database verification failed: {str(db_ex)}")
+            raise
+        finally:
+            db.close()
+            
         logger.info("CargoX API started successfully")
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}")
+        logger.error("Application may not function correctly due to database initialization failure")
+        # We don't raise the exception here to allow the application to start
+        # even with database issues, for resilience
 
 # Root endpoint (health check)
 @app.get("/")
@@ -598,6 +616,9 @@ class UsagePlanRequest(BaseModel):
     usage_plan: Dict[str, int] = {}
 
 # Simulate a day passing in the system
+
+
+
 @app.post("/simulate/day")
 async def simulate_day(
     request: UsagePlanRequest = Body(...),
@@ -640,7 +661,7 @@ async def simulate_day(
                     item.is_waste = True
                     logger.info(f"Item {item_id} marked as waste: usage limit reached during simulation")
         
-        # Check for expired items
+        # Check for expired items - include ALL items regardless of placement status
         items = db.query(Item).filter(Item.is_waste == False).all()
         for item in items:
             if item.expiry_date and item.expiry_date <= simulated_date:
@@ -648,7 +669,9 @@ async def simulate_day(
                 expired_items.append({
                     "id": item.id,
                     "name": item.name,
-                    "expiry_date": item.expiry_date.isoformat()
+                    "expiry_date": item.expiry_date.isoformat(),
+                    "placement_status": "Placed" if item.is_placed else "Unplaced",
+                    "container_id": item.container_id
                 })
                 logger.info(f"Item {item.id} marked as waste: expired during simulation")
         
@@ -1583,55 +1606,48 @@ async def api_waste_identify(db: Session = Depends(get_db_with_fallback)):
         
         # Identify potential waste items
         try:
-            # Get items that are marked as waste
-            waste_items = db.query(Item).filter(Item.is_waste == True).all()
-            
-            # Get items with expiry date in the past
+            # Get current date for expiry checks
             today = datetime.now().date()
-            expired_items = db.query(Item).filter(
-                Item.is_waste == False,
-                Item.expiry_date.isnot(None),
-                Item.expiry_date < today
-            ).all()
             
-            # Mark expired items as waste
-            for item in expired_items:
-                item.is_waste = True
-                waste_items.append(item)
+            # Track all waste items found
+            waste_items_data = []
             
-            # Get items that have reached their usage limit
-            used_up_items = db.query(Item).filter(
-                Item.is_waste == False,
-                Item.usage_limit.isnot(None),
-                Item.usage_count >= Item.usage_limit
-            ).all()
+            # 1. Check all items regardless of placement status
+            all_items = db.query(Item).all()
             
-            # Mark used up items as waste
-            for item in used_up_items:
-                item.is_waste = True
-                waste_items.append(item)
+            for item in all_items:
+                reason = None
+                
+                # Skip if already marked as waste
+                if item.is_waste:
+                    reason = "Already marked as waste"
+                
+                # Check for expired items
+                elif item.expiry_date and item.expiry_date < today:
+                    item.is_waste = True
+                    reason = f"Expired on {item.expiry_date.isoformat()}"
+                    
+                # Check for depleted items (usage limit reached)
+                elif item.usage_limit and item.usage_count >= item.usage_limit:
+                    item.is_waste = True
+                    reason = f"Usage limit reached ({item.usage_count}/{item.usage_limit})"
+                
+                # Add to waste items if a reason was found
+                if reason:
+                    placement_status = "Placed" if item.is_placed else "Unplaced"
+                    container_info = f" in {item.container_id}" if item.container_id else ""
+                    
+                    waste_items_data.append({
+                        "id": item.id,
+                        "name": item.name,
+                        "reason": reason,
+                        "status": f"{placement_status}{container_info}"
+                    })
             
-            # Save changes
+            # Save changes to database
             db.commit()
             
-            # Format response
-            waste_items_data = []
-            for item in waste_items:
-                reason = "Unknown"
-                if item.expiry_date and item.expiry_date < today:
-                    reason = f"Expired on {item.expiry_date.isoformat()}"
-                elif item.usage_limit and item.usage_count >= item.usage_limit:
-                    reason = f"Usage limit reached ({item.usage_count}/{item.usage_limit})"
-                else:
-                    reason = "Marked as waste"
-                
-                waste_items_data.append({
-                    "id": item.id,
-                    "name": item.name,
-                    "reason": reason
-                })
-            
-            # Log the action
+            # Log the waste identification
             try:
                 log_action(db, "waste_identification", None, None, "system", 
                           f"Identified {len(waste_items_data)} waste items")
