@@ -255,60 +255,74 @@ const RearrangePage = () => {
           </div>
           
           {rearrangementPlan.length > 0 && (
-            <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
-              <div className="flex items-center justify-between mb-4">
+            <div className="mt-8">
+              <div className="flex justify-between items-center mb-4">
                 <div className="text-green-400 text-sm font-bold">{'// REARRANGEMENT PLAN'}</div>
-                <div className="px-2 py-1 bg-green-900/20 text-green-500 text-xs rounded border border-green-500/20">
-                  {rearrangementPlan.length} MOVES
-                </div>
+                <button
+                  onClick={handleExecutePlan}
+                  disabled={executing}
+                  className={`flex items-center px-4 py-2 rounded text-sm ${
+                    executing
+                      ? 'bg-gray-800 text-gray-500 cursor-wait'
+                      : 'bg-green-900/40 text-green-400 hover:bg-green-900/60 border border-green-500/30'
+                  }`}
+                >
+                  {executing ? (
+                    <>
+                      <Loader className="h-4 w-4 mr-2 animate-spin" />
+                      EXECUTING...
+                    </>
+                  ) : (
+                    'EXECUTE PLAN'
+                  )}
+                </button>
               </div>
               
-              <div className="max-h-96 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-gray-500 border-b border-gray-800">
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-black/25 border border-green-500/10">
+                  <thead className="bg-green-900/10">
                     <tr>
-                      <th className="text-left py-2">ITEM ID</th>
-                      <th className="text-left py-2">CURRENT LOCATION</th>
-                      <th className="text-left py-2">TARGET LOCATION</th>
-                      <th className="text-left py-2">REASON</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ITEM</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">FROM</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">TO</th>
+                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">REASON</th>
+                      {executionResult && (
+                        <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">STATUS</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {rearrangementPlan.map((move, index) => (
-                      <tr key={index} className="border-b border-gray-900">
-                        <td className="py-2 text-green-400">{move.item_id}</td>
-                        <td className="py-2">
-                          <span className="px-1.5 py-0.5 bg-red-900/20 text-red-400 rounded text-xs">
-                            {move.from_container}
-                          </span>
-                        </td>
-                        <td className="py-2 flex items-center">
-                          <ArrowRight className="h-3 w-3 text-gray-600 mr-2" />
-                          <span className="px-1.5 py-0.5 bg-green-900/20 text-green-400 rounded text-xs">
-                            {move.to_container}
-                          </span>
-                        </td>
-                        <td className="py-2 text-xs text-orange-300">
-                          {move.reason || "Container balancing"}
-                        </td>
-                      </tr>
-                    ))}
+                    {rearrangementPlan.map((move, index) => {
+                      // Find the corresponding result from the execution if available
+                      const result = executionResult?.results?.find(r => r.item_id === move.item_id);
+                      
+                      return (
+                        <tr key={index} className="border-b border-green-500/10 hover:bg-green-900/5">
+                          <td className="border border-green-500/10 px-4 py-2">
+                            <div className="font-mono text-green-300 text-xs">{move.item_id}</div>
+                            {move.item_name && move.item_name !== move.item_id && (
+                              <div className="text-gray-400 text-xs">{move.item_name}</div>
+                            )}
+                          </td>
+                          <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">{move.from_container}</td>
+                          <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">{move.to_container}</td>
+                          <td className="border border-green-500/10 px-4 py-2 text-gray-500 text-xs">{move.reason || "Optimize arrangement"}</td>
+                          {executionResult && (
+                            <td className="border border-green-500/10 px-4 py-2">
+                              {result ? (
+                                <div className={result.success ? "text-green-400 text-xs" : "text-red-400 text-xs"}>
+                                  {result.success ? "SUCCESS" : "FAILED"}
+                                </div>
+                              ) : (
+                                <div className="text-gray-500 text-xs">PENDING</div>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-              </div>
-              
-              <div className="mt-4 text-center">
-                <button 
-                  onClick={handleExecutePlan}
-                  disabled={executing}
-                  className={`bg-green-900/30 text-green-400 hover:bg-green-900/50 border border-green-500/30 px-4 py-2 rounded text-sm
-                    ${executing ? 'opacity-50 cursor-wait' : 'hover:scale-105 transition-transform'}`}
-                >
-                  {executing ? 'EXECUTING PLAN...' : 'EXECUTE REARRANGEMENT PLAN'}
-                </button>
-                <div className="text-xs text-gray-500 mt-2">
-                  This will automatically move items according to the suggested plan
-                </div>
               </div>
             </div>
           )}

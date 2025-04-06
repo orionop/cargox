@@ -1462,47 +1462,67 @@ async def api_place(
     db: Session = Depends(get_db)
 ):
     try:
-        item_id = body.get("itemId", "")
-        container_id = body.get("containerId", "")
-        position_x = body.get("position", {}).get("x", 0.0) if body.get("position") else body.get("positionX", 0.0)
-        position_y = body.get("position", {}).get("y", 0.0) if body.get("position") else body.get("positionY", 0.0)
-        position_z = body.get("position", {}).get("z", 0.0) if body.get("position") else body.get("positionZ", 0.0)
+        # Extract parameters
+        item_id = body.get("itemId")
+        container_id = body.get("containerId")
+        position_x = body.get("position_x", 0)
+        position_y = body.get("position_y", 0)
+        position_z = body.get("position_z", 0)
         user_id = body.get("userId", "system")
+        
+        if not item_id or not container_id:
+            return {
+                "success": False,
+                "message": "Missing required parameters: itemId and containerId"
+            }
         
         # Get the item
         item = db.query(Item).filter(Item.id == item_id).first()
         if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Item with ID {item_id} not found"
-            )
-            
+            return {
+                "success": False,
+                "message": f"Item {item_id} not found"
+            }
+        
         # Get the container
         container = db.query(Container).filter(Container.id == container_id).first()
         if not container:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Container with ID {container_id} not found"
-            )
+            return {
+                "success": False,
+                "message": f"Container {container_id} not found"
+            }
+        
+        # Count items in the container
+        items_in_container = db.query(Item).filter(
+            Item.container_id == container_id,
+            Item.is_placed == True
+        ).count()
+        
+        # Check if container is at capacity
+        if items_in_container >= container.capacity and (not item.container_id or item.container_id != container_id):
+            return {
+                "success": False,
+                "message": f"Container {container_id} is at capacity ({items_in_container}/{container.capacity})"
+            }
             
-        # Validate position is within container dimensions
+        # Validate dimensions
         if position_x < 0 or position_x + item.width > container.width:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Item width exceeds container boundaries or invalid x position"
-            )
+            return {
+                "success": False,
+                "message": f"Item width exceeds container boundaries or invalid x position"
+            }
             
         if position_y < 0 or position_y + item.height > container.height:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Item height exceeds container boundaries or invalid y position"
-            )
+            return {
+                "success": False,
+                "message": f"Item height exceeds container boundaries or invalid y position"
+            }
             
         if position_z < 0 or position_z + item.depth > container.depth:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Item depth exceeds container boundaries or invalid z position"
-            )
+            return {
+                "success": False,
+                "message": f"Item depth exceeds container boundaries or invalid z position"
+            }
             
         # Update item placement
         item.container_id = container_id
@@ -1538,17 +1558,10 @@ async def api_place(
         raise
     
     except Exception as e:
-        logger.error(f"Error placing item {item_id}: {str(e)}")
+        logger.error(f"Error placing item {body.get('itemId')}: {str(e)}")
         return {
             "success": False,
             "message": f"Error placing item: {str(e)}"
-        }
-    
-    except Exception as e:
-        logger.error(f"Error in API place endpoint: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Error in place API: {str(e)}"
         }
 
 # 3. Waste Management API

@@ -435,9 +435,9 @@ export async function executeRearrangementPlan(rearrangementPlan) {
           body: JSON.stringify({
             itemId: move.item_id,
             containerId: move.to_container,
-            positionX: 0, // Default positions - the backend will find the best place
-            positionY: 0,
-            positionZ: 0,
+            position_x: 0, // Default positions - the backend will find the best place
+            position_y: 0,
+            position_z: 0,
             userId: "system"
           }),
         });
