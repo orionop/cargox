@@ -17,6 +17,9 @@ A comprehensive implementation of the Space Station Cargo Management System API 
 ## Getting Started
 
 1. Clone this repository
+```
+git clone https://github.com/kry0sc0pic/cargox.git
+```
 2. Start Docker Containers
 ```
 docker compose up -d --build
