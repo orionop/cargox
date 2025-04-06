@@ -12,6 +12,7 @@ A comprehensive implementation of the Space Station Cargo Management System API 
 6. ✅ Time Simulation API - Future state prediction and planning
 7. ✅ Import/Export APIs - Data management and system state persistence
 8. ✅ Logging API - Detailed activity tracking and audit system
+9. ✅ Rearrangement API - Optimize storage space by relocating low-priority items
 
 ## Getting Started
 
@@ -162,12 +163,106 @@ docker compose up -d --build
 }
 ```
 
+### Rearrangement API
+
+#### Get Rearrangement Recommendations
+**Endpoint:** `GET /api/rearrangement`
+
+**Description:** Generates recommendations for rearranging low-priority items to optimize storage space utilization. The API automatically identifies which items can be moved and creates a step-by-step movement plan that minimizes the time required. It also identifies containers with inefficient space usage.
+
+**Query Parameters:**
+- `priority_threshold`: Only move items with priority below this threshold (default: 30, range: 0-100)
+- `max_movements`: Maximum number of movements to recommend (default: 10, range: 1-50)
+- `space_target`: Target percentage improvement in space utilization (default: 15.0, range: 5.0-50.0)
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Generated rearrangement plan with 5 movements",
+  "total_steps": 5,
+  "total_estimated_time": 42.5,
+  "space_optimization": 12.3,
+  "movements": [
+    {
+      "step": 1,
+      "item_id": "item-56",
+      "item_name": "Spare Filters",
+      "from_container_id": "container-14",
+      "to_container_id": "container-3",
+      "estimated_time": 8.5,
+      "priority": 15,
+      "description": "Move Spare Filters from container-14 (Lab) to container-3 (Storage)"
+    },
+    {
+      "step": 2,
+      "item_id": "item-23",
+      "item_name": "Maintenance Kit",
+      "from_container_id": "container-8",
+      "to_container_id": "container-2",
+      "estimated_time": 7.2,
+      "priority": 22,
+      "description": "Move Maintenance Kit from container-8 (Crew) to container-2 (Storage)"
+    }
+  ],
+  "disorganized_containers": [
+    {
+      "container_id": "container-14",
+      "zone": "Lab",
+      "inefficiency_score": 68.7,
+      "volume_utilization": 42.3,
+      "item_count": 8,
+      "high_priority_items": 2,
+      "low_priority_items": 6,
+      "recommended_actions": "Consolidate low priority items"
+    },
+    {
+      "container_id": "container-8",
+      "zone": "Crew",
+      "inefficiency_score": 54.2,
+      "volume_utilization": 38.9,
+      "item_count": 5,
+      "high_priority_items": 1,
+      "low_priority_items": 4,
+      "recommended_actions": "Move low priority items to storage"
+    }
+  ],
+  "low_priority_items_moved": ["item-56", "item-23", "item-78", "item-12", "item-45"],
+  "high_priority_items_untouched": ["item-1", "item-5", "item-9"]
+}
+```
+
+#### Apply Rearrangement Plan
+**Endpoint:** `POST /api/rearrangement/apply`
+
+**Description:** Allows an astronaut to apply a previously generated rearrangement plan, recording the implementation details.
+
+**Request:**
+```json
+{
+  "movement_ids": ["item-56", "item-23"],
+  "astronaut_id": "astronaut-2"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Successfully applied 2 movements",
+  "total_steps": 2,
+  "total_estimated_time": 15.7,
+  "space_optimization": 5.2,
+  "movements": []
+}
+```
+
 ### Waste Management APIs
 
 #### Identify Waste
 **Endpoint:** `GET /api/waste/identify`
 
-**Description:** Identifies items that have been marked for disposal or have exceeded their useful life based on expiration dates and usage patterns.
+**Description:** Identifies items that have been marked for disposal or have exceeded their useful life. This includes both placed and unplaced items that have expired or reached their usage limit.
 
 **Query Parameters:**
 - `expirationBefore`: Filter items expiring before given date (YYYY-MM-DD)
@@ -184,7 +279,8 @@ docker compose up -d --build
       "expirationDate": "2023-01-15",
       "usagePercentage": 100,
       "mass": 0.5,
-      "containerId": "container-5"
+      "containerId": "container-5",
+      "status": "Placed in container-5"
     },
     {
       "itemId": "item-45",
@@ -192,13 +288,23 @@ docker compose up -d --build
       "expirationDate": null,
       "usagePercentage": 98,
       "mass": 2.3,
-      "containerId": "container-2"
+      "containerId": "container-2",
+      "status": "Placed in container-2"
+    },
+    {
+      "itemId": "item-67",
+      "name": "Expired Medical Supply",
+      "expirationDate": "2023-02-10",
+      "usagePercentage": 0,
+      "mass": 1.2,
+      "containerId": null,
+      "status": "Unplaced"
     }
   ],
-  "totalWasteMass": 2.8,
+  "totalWasteMass": 4.0,
   "wasteContainerCapacity": {
     "available": 50.0,
-    "required": 2.8,
+    "required": 4.0,
     "sufficient": true
   }
 }
@@ -304,7 +410,7 @@ docker compose up -d --build
 ### Time Simulation API
 **Endpoint:** `POST /api/simulate/day`
 
-**Description:** Simulates the passage of time in the space station by calculating item usage, expiration, and generating predictions for future cargo needs.
+**Description:** Simulates the passage of time in the space station by calculating item usage, expiration, and generating predictions for future cargo needs. The simulation will mark both placed and unplaced items as waste if they expire during the simulation period.
 
 **Request:**
 ```json
@@ -349,6 +455,22 @@ docker compose up -d --build
         "daysUntilDepletion": 2
       }
     ],
+    "expiredItems": [
+      {
+        "itemId": "item-45",
+        "name": "Medical Supplies",
+        "expiryDate": "2024-05-07",
+        "placementStatus": "Placed",
+        "containerId": "container-3"
+      },
+      {
+        "itemId": "item-67",
+        "name": "Food Package",
+        "expiryDate": "2024-05-08",
+        "placementStatus": "Unplaced",
+        "containerId": null
+      }
+    ],
     "spaceUtilization": {
       "initialPercentage": 76.2,
       "finalPercentage": 73.5,
@@ -377,7 +499,7 @@ docker compose up -d --build
       {
         "type": "WASTE_DISPOSAL",
         "recommendedDate": "2024-05-10T00:00:00Z",
-        "wasteItems": ["item-12", "item-47"]
+        "wasteItems": ["item-12", "item-47", "item-45", "item-67"]
       }
     ]
   }
@@ -448,21 +570,4 @@ Adminer is accessible at [http://localhost:8001](http://localhost:8001)
 - Username: `postgres`
 - Password: `postgres`
 - Database: `cargox`
-- Permanent Login: `Yes`
-
-
-## CSV File Format
-
-### Containers CSV
-```
-id,width,height,depth,capacity
-C001,10.0,5.0,8.0,5
-C002,8.0,4.0,6.0,3
-```
-
-### Items CSV
-```
-id,name,width,height,depth,weight
-I001,Tool Kit,10.0,5.0,3.0,2.5
-I002,First Aid,8.0,6.0,4.0,1.5
-```
+- Permanent Login: `Yes` 
