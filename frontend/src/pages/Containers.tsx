@@ -43,6 +43,8 @@ const ContainersPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const containersPerPage = 5;
 
   useEffect(() => {
     const getContainersData = async () => {
@@ -145,6 +147,13 @@ const ContainersPage = () => {
     }
   };
 
+  const paginatedContainers = () => {
+    const startIndex = (currentPage - 1) * containersPerPage;
+    return containers.slice(startIndex, startIndex + containersPerPage);
+  };
+
+  const totalPages = Math.ceil(containers.length / containersPerPage);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px] text-center">
@@ -200,7 +209,7 @@ const ContainersPage = () => {
             <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
               <div className="text-green-400 text-sm font-bold mb-3">{'// CONTAINER REGISTRY'}</div>
               <div className="space-y-2">
-                {containers.map((container) => (
+                {paginatedContainers().map((container) => (
                   <button
                     key={container.id}
                     onClick={() => setSelectedContainer(container.id)}
@@ -216,6 +225,28 @@ const ContainersPage = () => {
                   </button>
                 ))}
               </div>
+
+              {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-4">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-gray-400">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

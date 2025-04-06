@@ -19,6 +19,9 @@ interface Item {
   priority: number;
   preferred_zone: string | null;
   is_waste: boolean;
+  expiry_date?: string;
+  usage_limit?: number;
+  usage_count?: number;
 }
 
 const ItemsPage = () => {
@@ -28,6 +31,9 @@ const ItemsPage = () => {
   const [sortBy, setSortBy] = useState<keyof Item>('id');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [placedFilter, setPlacedFilter] = useState<boolean | null>(null);
+  const [wasteFilter, setWasteFilter] = useState<boolean | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -52,6 +58,7 @@ const ItemsPage = () => {
   const sortedItems = () => {
     return [...items]
       .filter(item => placedFilter === null || item.is_placed === placedFilter)
+      .filter(item => wasteFilter === null || item.is_waste === wasteFilter)
       .sort((a, b) => {
         const aValue = a[sortBy];
         const bValue = b[sortBy];
@@ -65,6 +72,13 @@ const ItemsPage = () => {
         return 0;
       });
   };
+
+  const paginatedItems = () => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedItems().slice(startIndex, startIndex + itemsPerPage);
+  };
+
+  const totalPages = Math.ceil(sortedItems().length / itemsPerPage);
 
   const toggleSort = (field: keyof Item) => {
     if (sortBy === field) {
@@ -122,6 +136,25 @@ const ItemsPage = () => {
         >
           Unplaced
         </button>
+        <div className="h-4 w-px bg-gray-700 mx-2"></div>
+        <button 
+          onClick={() => setWasteFilter(null)} 
+          className={`px-3 py-1 rounded text-xs ${wasteFilter === null ? 'bg-green-900/50 text-green-400' : 'bg-gray-800/50 text-gray-400'}`}
+        >
+          All
+        </button>
+        <button 
+          onClick={() => setWasteFilter(true)} 
+          className={`px-3 py-1 rounded text-xs ${wasteFilter === true ? 'bg-green-900/50 text-green-400' : 'bg-gray-800/50 text-gray-400'}`}
+        >
+          Waste
+        </button>
+        <button 
+          onClick={() => setWasteFilter(false)} 
+          className={`px-3 py-1 rounded text-xs ${wasteFilter === false ? 'bg-green-900/50 text-green-400' : 'bg-gray-800/50 text-gray-400'}`}
+        >
+          Active
+        </button>
       </div>
 
       {items.length === 0 ? (
@@ -131,83 +164,119 @@ const ItemsPage = () => {
           <p className="text-xs text-gray-400">IMPORT ITEMS TO BEGIN</p>
         </div>
       ) : (
-        <div className="bg-gray-950 border border-green-800/30 rounded-md overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-green-900/20 text-xs text-green-500">
-                <tr>
-                  <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('id')}>
-                    <div className="flex items-center">
-                      ID 
-                      {sortBy === 'id' && <ArrowUpDown className="ml-1 h-3 w-3" />}
-                    </div>
-                  </th>
-                  <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('name')}>
-                    <div className="flex items-center">
-                      NAME
-                      {sortBy === 'name' && <ArrowUpDown className="ml-1 h-3 w-3" />}
-                    </div>
-                  </th>
-                  <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('priority')}>
-                    <div className="flex items-center">
-                      PRIORITY
-                      {sortBy === 'priority' && <ArrowUpDown className="ml-1 h-3 w-3" />}
-                    </div>
-                  </th>
-                  <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('preferred_zone')}>
-                    <div className="flex items-center">
-                      ZONE
-                      {sortBy === 'preferred_zone' && <ArrowUpDown className="ml-1 h-3 w-3" />}
-                    </div>
-                  </th>
-                  <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('is_placed')}>
-                    <div className="flex items-center">
-                      STATUS
-                      {sortBy === 'is_placed' && <ArrowUpDown className="ml-1 h-3 w-3" />}
-                    </div>
-                  </th>
-                  <th className="py-2 px-4 text-left font-medium">
-                    CONTAINER
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {sortedItems().map((item) => (
-                  <tr key={item.id} className="border-t border-green-900/10 hover:bg-green-900/5">
-                    <td className="py-2 px-4 font-mono text-green-400">{item.id}</td>
-                    <td className="py-2 px-4 text-gray-300">{item.name}</td>
-                    <td className="py-2 px-4">
-                      <div className={`px-2 py-0.5 inline-block rounded ${
-                        item.priority >= 80 ? 'bg-red-900/20 text-red-400' :
-                        item.priority >= 50 ? 'bg-yellow-900/20 text-yellow-400' :
-                        'bg-blue-900/20 text-blue-400'
-                      }`}>
-                        {item.priority}
+        <>
+          <div className="bg-gray-950 border border-green-800/30 rounded-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-green-900/20 text-xs text-green-500">
+                  <tr>
+                    <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('id')}>
+                      <div className="flex items-center">
+                        ID 
+                        {sortBy === 'id' && <ArrowUpDown className="ml-1 h-3 w-3" />}
                       </div>
-                    </td>
-                    <td className="py-2 px-4 text-gray-400">{item.preferred_zone || 'Any'}</td>
-                    <td className="py-2 px-4">
-                      {item.is_placed ? (
-                        <div className="flex items-center text-green-500">
-                          <Check className="h-4 w-4 mr-1" />
-                          <span>Placed</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center text-red-400">
-                          <X className="h-4 w-4 mr-1" />
-                          <span>Unplaced</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 px-4 text-gray-400">
-                      {item.container_id || 'Not assigned'}
-                    </td>
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('name')}>
+                      <div className="flex items-center">
+                        NAME
+                        {sortBy === 'name' && <ArrowUpDown className="ml-1 h-3 w-3" />}
+                      </div>
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('priority')}>
+                      <div className="flex items-center">
+                        PRIORITY
+                        {sortBy === 'priority' && <ArrowUpDown className="ml-1 h-3 w-3" />}
+                      </div>
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('preferred_zone')}>
+                      <div className="flex items-center">
+                        ZONE
+                        {sortBy === 'preferred_zone' && <ArrowUpDown className="ml-1 h-3 w-3" />}
+                      </div>
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium cursor-pointer" onClick={() => toggleSort('is_placed')}>
+                      <div className="flex items-center">
+                        STATUS
+                        {sortBy === 'is_placed' && <ArrowUpDown className="ml-1 h-3 w-3" />}
+                      </div>
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium">
+                      EXPIRY
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium">
+                      USAGE
+                    </th>
+                    <th className="py-2 px-4 text-left font-medium">
+                      CONTAINER
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-sm">
+                  {paginatedItems().map((item) => (
+                    <tr key={item.id} className="border-t border-green-900/10 hover:bg-green-900/5">
+                      <td className="py-2 px-4 font-mono text-green-400">{item.id}</td>
+                      <td className="py-2 px-4 text-gray-300">{item.name}</td>
+                      <td className="py-2 px-4">
+                        <div className={`px-2 py-0.5 inline-block rounded ${
+                          item.priority >= 80 ? 'bg-red-900/20 text-red-400' :
+                          item.priority >= 50 ? 'bg-yellow-900/20 text-yellow-400' :
+                          'bg-blue-900/20 text-blue-400'
+                        }`}>
+                          {item.priority}
+                        </div>
+                      </td>
+                      <td className="py-2 px-4 text-gray-400">{item.preferred_zone || 'Any'}</td>
+                      <td className="py-2 px-4">
+                        {item.is_placed ? (
+                          <div className="flex items-center text-green-500">
+                            <Check className="h-4 w-4 mr-1" />
+                            <span>Placed</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center text-red-400">
+                            <X className="h-4 w-4 mr-1" />
+                            <span>Unplaced</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 px-4 text-gray-400">
+                        {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="py-2 px-4 text-gray-400">
+                        {item.usage_limit ? `${item.usage_count || 0}/${item.usage_limit}` : 'N/A'}
+                      </td>
+                      <td className="py-2 px-4 text-gray-400">
+                        {item.container_id || 'Not assigned'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-2 mt-4">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-gray-400">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
       )}
       
       <div className="mt-6 text-xs text-gray-500 border-t border-green-600/30 pt-4">
@@ -215,7 +284,9 @@ const ItemsPage = () => {
           <div>LAST SYNC: {new Date().toLocaleTimeString()}</div>
           <div>
             <span className="mr-4">PLACED: {items.filter(i => i.is_placed).length}</span>
-            <span>UNPLACED: {items.filter(i => !i.is_placed).length}</span>
+            <span className="mr-4">UNPLACED: {items.filter(i => !i.is_placed).length}</span>
+            <span className="mr-4">WASTE: {items.filter(i => i.is_waste).length}</span>
+            <span>ACTIVE: {items.filter(i => !i.is_waste).length}</span>
           </div>
         </div>
       </div>

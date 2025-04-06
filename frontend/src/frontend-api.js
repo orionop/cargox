@@ -286,14 +286,20 @@ export async function completeWasteUndocking(containerIds, removeItems = true) {
  */
 export async function simulateDay(usagePlan = {}) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/simulate/day`, {
+    const response = await fetch(`${API_BASE_URL}/simulate/day`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ usage_plan: usagePlan })
     });
-    return await response.json();
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data;
   } catch (error) {
     console.error('Error simulating day:', error);
     throw error;
