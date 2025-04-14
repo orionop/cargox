@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Upload, Search, Home, Activity, BarChart3, Calendar, Trash2, ClipboardList, Package, RefreshCw } from 'lucide-react';
-import logoImage from '../assets/logo.png';
+import { Upload, Search, Home, Activity, BarChart3, Calendar, Trash2, ClipboardList, Package, RefreshCw, Rocket } from 'lucide-react';
 
 const Layout = () => {
   const location = useLocation();
@@ -37,10 +36,11 @@ const Layout = () => {
 
       {/* Sidebar */}
       <div className="w-16 md:w-64 bg-gray-950 border-r border-green-600/30 flex flex-col fixed top-12 bottom-0 left-0 z-10">
-        {/* Top Logo */}
-        <Link to="/" className="flex items-center justify-center px-4 py-4 border-b border-green-600/30">
-          <div className="w-full flex justify-center items-center h-12">
-            <img src={logoImage} alt="CargoX Logo" className="h-full w-auto object-contain" />
+        {/* Top Logo Area */}
+        <Link to="/" className="flex items-center justify-center px-4 py-4 border-b border-green-600/30 h-[73px]">
+          <div className="flex items-center space-x-2">
+            <Rocket className="h-6 w-6 text-green-500" />
+            <span className="hidden md:block text-xl font-bold text-green-400 tracking-wider">CargoX</span>
           </div>
         </Link>
         

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Search, Loader, Terminal, ArrowRight, CheckCircle, AlertTriangle, CircleOff } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, Loader, Terminal, ArrowRight, CheckCircle, AlertTriangle, CircleOff, ChevronLeft, ChevronRight } from 'lucide-react';
 import { retrieveItem, trackItemUsage } from '../frontend-api';
+import RetrievalAnimation from '../components/RetrievalAnimation';
 
 interface ItemPosition {
   x: number;
@@ -47,13 +48,17 @@ interface RetrieveApiResponse {
 }
 
 const RetrievePage = () => {
-  const [itemId, setItemId] = useState('');
+  const [itemId, setItemId] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [retrieving, setRetrieving] = useState(false);
+  const [retrieving, setRetrieving] = useState<boolean>(false);
   const [locatedItem, setLocatedItem] = useState<RetrievalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [retrievalLogs, setRetrievalLogs] = useState<string[]>([]);
+  const [startRetrieveAnimation, setStartRetrieveAnimation] = useState<boolean>(false);
+  const [showAnimationComplete, setShowAnimationComplete] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [logsPerPage] = useState<number>(10);
 
   const addLog = (message: string) => {
     setRetrievalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
@@ -65,6 +70,8 @@ const RetrievePage = () => {
     setError(null);
     setSuccess(null);
     setLocatedItem(null);
+    setStartRetrieveAnimation(false);
+    setShowAnimationComplete(false);
     addLog(`INITIATING CARGO LOCATE SEQUENCE FOR CARGO_ID: ${itemId}`);
 
     try {
@@ -102,12 +109,15 @@ const RetrievePage = () => {
   };
 
   const handleRetrieve = async () => {
-    if (!locatedItem || !locatedItem.found) return;
-    
+    if (!locatedItem || !locatedItem.found || !locatedItem.location) return;
+
     setRetrieving(true);
     setError(null);
     setSuccess(null);
+    setShowAnimationComplete(false);
     addLog(`INITIATING RETRIEVAL SEQUENCE FOR CARGO_ID: ${itemId}`);
+    addLog(`ACTIVATING DOCKING MECHANISM...`);
+    setStartRetrieveAnimation(true);
 
     try {
       // Call the actual retrieve endpoint to mark item as retrieved
@@ -117,35 +127,48 @@ const RetrievePage = () => {
       addLog(`RETRIEVAL DATA RECEIVED FROM SERVER`);
       
       if (retrieveResponse.success) {
-        // Update the located item to show it's no longer placed
-        if (locatedItem && locatedItem.location) {
-          setLocatedItem({
-            ...locatedItem,
-            location: undefined,
-            item: {
-              ...locatedItem.item!,
-              is_placed: false,
-              container_id: undefined,
-              position: undefined
-            }
-          });
-          
-          setSuccess(`Item ${itemId} has been successfully retrieved and is ready for use.`);
-          addLog(`CARGO SUCCESSFULLY RETRIEVED FROM STORAGE`);
-          addLog(`CARGO NOW AVAILABLE FOR USE`);
-        }
+        // Keep the animation running until it completes
       } else {
         setError(retrieveResponse.message || 'Failed to retrieve item');
         addLog(`ERROR: RETRIEVAL FAILED - ${retrieveResponse.message}`);
+        setStartRetrieveAnimation(false);
+        setRetrieving(false);
       }
       
-      setRetrieving(false);
     } catch (err: any) {
       console.error(err);
       setError(`Failed to retrieve item: ${err.message}`);
       addLog(`ERROR: RETRIEVAL SEQUENCE FAILED - CHECK SYSTEM LOG`);
+      setStartRetrieveAnimation(false);
       setRetrieving(false);
     }
+  };
+
+  const handleAnimationComplete = () => {
+    addLog(`DOCKING MECHANISM CYCLE COMPLETE.`);
+    addLog(`CARGO SUCCESSFULLY RETRIEVED FROM STORAGE.`);
+    addLog(`CARGO NOW AVAILABLE FOR USE.`);
+
+    setRetrieving(false);
+    setSuccess(`Item ${itemId} has been successfully retrieved and is ready for use.`);
+    setShowAnimationComplete(true);
+
+    if (locatedItem && locatedItem.location) {
+      setLocatedItem(prev => prev ? ({
+        ...prev,
+        location: undefined,
+        item: {
+          ...prev.item!,
+          is_placed: false,
+          container_id: undefined,
+          position: undefined
+        }
+      }) : null);
+    }
+
+    setTimeout(() => {
+      setStartRetrieveAnimation(false);
+    }, 100); 
   };
 
   const resetAll = () => {
@@ -154,6 +177,26 @@ const RetrievePage = () => {
     setError(null);
     setSuccess(null);
     setRetrievalLogs([]);
+    setStartRetrieveAnimation(false);
+    setShowAnimationComplete(false);
+  };
+
+  // Calculate the logs for the current page
+  const indexOfLastLog = currentPage * logsPerPage;
+  const indexOfFirstLog = indexOfLastLog - logsPerPage;
+  const currentLogs = retrievalLogs.slice(indexOfFirstLog, indexOfLastLog);
+  
+  // Change page
+  const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
+  const nextPage = () => {
+    if (currentPage < Math.ceil(retrievalLogs.length / logsPerPage)) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+  const prevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
   };
 
   return (
@@ -220,10 +263,10 @@ const RetrievePage = () => {
           </div>
 
           {retrievalLogs.length > 0 && (
-            <div className="bg-gray-950 p-4 rounded-md border border-green-800/30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-green-400 text-sm font-bold">SYSTEM.LOG</div>
-                <button 
+            <div className="mt-6 bg-gray-900/40 border border-green-500/30 p-4 rounded-md">
+              <div className="flex justify-between items-center mb-2">
+                <div className="text-xs text-green-500 font-mono">SYSTEM_LOGS</div>
+                <button
                   className="text-xs text-gray-500 hover:text-green-400"
                   onClick={() => setRetrievalLogs([])}
                 >
@@ -231,10 +274,31 @@ const RetrievePage = () => {
                 </button>
               </div>
               <div className="bg-black/50 p-3 rounded font-mono text-xs h-60 overflow-y-auto">
-                {retrievalLogs.map((log, index) => (
-                  <div key={index} className="text-green-300 mb-1">{log}</div>
+                {currentLogs.map((log, index) => (
+                  <div key={indexOfFirstLog + index} className="text-green-300 mb-1">{log}</div>
                 ))}
               </div>
+              {retrievalLogs.length > logsPerPage && (
+                <div className="flex justify-center items-center gap-2 mt-4">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-gray-400">
+                    Page {currentPage} of {Math.ceil(retrievalLogs.length / logsPerPage)}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(Math.ceil(retrievalLogs.length / logsPerPage), prev + 1))}
+                    disabled={currentPage >= Math.ceil(retrievalLogs.length / logsPerPage)}
+                    className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -253,7 +317,7 @@ const RetrievePage = () => {
             </div>
           )}
           
-          {success && (
+          {success && !retrieving && (
             <div className="bg-green-900/20 border border-green-500/30 rounded-md p-4 mb-6">
               <div className="flex items-start">
                 <CheckCircle className="h-5 w-5 text-green-500 mr-2 flex-shrink-0 mt-0.5" />
@@ -265,97 +329,99 @@ const RetrievePage = () => {
             </div>
           )}
 
-          {locatedItem && (
-            <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-green-400 text-sm font-bold">LOCATE RESULTS</div>
-                <div className={`px-2 py-1 ${locatedItem.found ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-400'} text-xs rounded border ${locatedItem.found ? 'border-green-500/20' : 'border-red-500/20'}`}>
-                  {locatedItem.found ? 'CARGO LOCATED' : 'NOT FOUND'}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {locatedItem.found ? (
-                  <>
-                    <div className="bg-black/30 p-3 rounded-md">
-                      <div className="text-xs text-gray-500 mb-2">CARGO DETAILS</div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <div className="text-xs text-gray-500">ID</div>
-                          <div className="text-green-400 font-bold">
-                            {locatedItem.item_id}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-500">NAME</div>
-                          <div className="text-green-400 font-bold">
-                            {locatedItem.item?.name || '-'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {locatedItem.location ? (
-                      <>
-                        <div className="bg-black/30 p-3 rounded-md">
-                          <div className="text-xs text-gray-500 mb-2">LOCATION DATA</div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <div className="text-xs text-gray-500">CONTAINER</div>
-                              <div className="text-green-400 font-bold">
-                                {locatedItem.location.container}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-xs text-gray-500">POSITION (X,Y,Z)</div>
-                              <div className="text-green-400 font-mono">
-                                {`${locatedItem.location.position.x.toFixed(2)}, ${locatedItem.location.position.y.toFixed(2)}, ${locatedItem.location.position.z.toFixed(2)}`}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <button
-                          onClick={handleRetrieve}
-                          disabled={retrieving}
-                          className="w-full py-3 bg-green-700 hover:bg-green-600 text-white font-bold rounded-md flex items-center justify-center disabled:opacity-50"
-                        >
-                          {retrieving ? (
-                            <>
-                              <Loader className="h-5 w-5 animate-spin mr-2" />
-                              RETRIEVING...
-                            </>
-                          ) : (
-                            'RETRIEVE CARGO'
-                          )}
-                        </button>
-                      </>
-                    ) : (
-                      <div className="bg-yellow-900/20 border border-yellow-700/30 p-3 rounded-md">
-                        <div className="flex items-center">
-                          <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
-                          <div className="text-yellow-400">
-                            CARGO IS NOT CURRENTLY PLACED IN A CONTAINER
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
+          {locatedItem && !error && (
+            <div className="bg-gray-950 p-5 rounded-md border border-green-800/30 mt-6 md:mt-0">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-green-400">CARGO.STATUS</h2>
+                {locatedItem.location ? (
+                  <div className="px-2 py-1 bg-blue-900/20 text-blue-400 text-xs rounded border border-blue-500/20">
+                    LOCATED
+                  </div>
+                ) : locatedItem.found ? (
+                   <div className="px-2 py-1 bg-yellow-900/20 text-yellow-400 text-xs rounded border border-yellow-500/20">
+                     AVAILABLE (NOT IN STORAGE)
+                   </div>
                 ) : (
-                  <div className="flex items-start">
-                    <CircleOff className="h-5 w-5 text-red-500 mr-2 flex-shrink-0 mt-1" />
-                    <div>
-                      <div className="text-sm mb-2">
-                        <span className="text-gray-500">STATUS:</span>{' '}
-                        <span className="text-red-400">CARGO NOT FOUND</span>
-                      </div>
-                      <div className="text-xs text-gray-500 bg-black/30 p-2 rounded">
-                        RECOMMENDED ACTION: VERIFY CARGO ID AND CHECK MANIFEST
-                      </div>
-                    </div>
+                  <div className="px-2 py-1 bg-red-900/20 text-red-400 text-xs rounded border border-red-500/20">
+                    NOT FOUND
                   </div>
                 )}
               </div>
+
+              {(startRetrieveAnimation || showAnimationComplete) && locatedItem.location && (
+                <div className="mb-4 p-4 bg-black/30 rounded border border-green-900/50 relative">
+                   <div className="absolute top-2 left-2 text-xs text-green-600 font-mono">[ DOCKING MECHANISM ACTIVE ]</div>
+                   <RetrievalAnimation
+                    startAnimation={startRetrieveAnimation}
+                    onAnimationComplete={handleAnimationComplete}
+                  />
+                  {showAnimationComplete && (
+                     <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                       <CheckCircle className="h-16 w-16 text-green-500 opacity-80" />
+                     </div>
+                   )}
+                </div>
+              )}
+
+              {!locatedItem.found && (
+                <div className="text-yellow-400 flex items-center">
+                  <CircleOff className="h-5 w-5 mr-2" />
+                  Cargo ID '{locatedItem.item_id}' not found in the system registry.
+                </div>
+              )}
+
+              {locatedItem.found && locatedItem.item && (
+                <div className="space-y-3 text-sm">
+                  <p><span className="text-gray-500">CARGO_ID:</span> {locatedItem.item.id}</p>
+                  <p><span className="text-gray-500">NAME:</span> {locatedItem.item.name}</p>
+                  
+                  {locatedItem.location ? (
+                    <>
+                      <p><span className="text-gray-500">LOCATION:</span> CONTAINER <span className="text-yellow-400">{locatedItem.location.container}</span></p>
+                      <p><span className="text-gray-500">COORDS:</span> X:{locatedItem.location.position.x.toFixed(1)} Y:{locatedItem.location.position.y.toFixed(1)} Z:{locatedItem.location.position.z.toFixed(1)}</p>
+                      {locatedItem.disturbed_items.length > 0 && (
+                        <p><span className="text-gray-500">OBSTRUCTIONS:</span> {locatedItem.disturbed_items.join(', ')}</p>
+                      )}
+                      <p><span className="text-gray-500">EST. RETRIEVAL:</span> {locatedItem.retrieval_time || 'N/A'}</p>
+                      {!retrieving && !startRetrieveAnimation && !showAnimationComplete && (
+                        <button
+                          onClick={handleRetrieve}
+                          disabled={retrieving || startRetrieveAnimation}
+                          className="w-full mt-4 px-4 py-2 bg-green-900/70 text-green-400 rounded-md hover:bg-green-800/70 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                          {retrieving || startRetrieveAnimation ? (
+                            <>
+                              <Loader className="h-5 w-5 mr-2 animate-spin" />
+                              RETRIEVING...
+                            </>
+                          ) : (
+                            <>
+                              <ArrowRight className="h-5 w-5 mr-2" />
+                              RETRIEVE CARGO
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {(retrieving || startRetrieveAnimation) && !showAnimationComplete && (
+                         <div className="mt-4 text-center text-green-500 text-sm animate-pulse">
+                           Engaging retrieval mechanism...
+                         </div>
+                      )}
+                      {showAnimationComplete && (
+                        <div className="mt-4 text-center text-green-400 text-sm font-bold flex items-center justify-center">
+                           <CheckCircle className="h-5 w-5 mr-2 text-green-500"/> RETRIEVAL COMPLETE
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-yellow-400 flex items-center mt-4">
+                       <CheckCircle className="h-5 w-5 mr-2" />
+                       Item is already available and not in storage.
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
           )}
         </div>
