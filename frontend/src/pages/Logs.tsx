@@ -1,5 +1,6 @@
 import { useState, useEffect, ChangeEvent } from 'react';
 import { getLogs } from '../frontend-api';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface LogEntry {
   id: number;
@@ -30,6 +31,8 @@ const Logs = () => {
     to_date: '',
     limit: 100
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [logsPerPage] = useState(15);
 
   useEffect(() => {
     fetchLogs();
@@ -77,7 +80,14 @@ const Logs = () => {
       to_date: '',
       limit: 100
     });
+    setCurrentPage(1); // Reset page when filters are cleared
   };
+
+  // Calculate paginated logs
+  const indexOfLastLog = currentPage * logsPerPage;
+  const indexOfFirstLog = indexOfLastLog - logsPerPage;
+  const currentLogs = logs.slice(indexOfFirstLog, indexOfLastLog);
+  const totalPages = Math.ceil(logs.length / logsPerPage);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -201,44 +211,66 @@ const Logs = () => {
           <h2 className="text-lg font-mono font-semibold text-green-400">LOG_ENTRIES <span className="text-xs text-gray-500">[{logs.length}]</span></h2>
         </div>
         
-        {logs.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-black/25 border border-green-500/10">
-              <thead>
-                <tr className="bg-green-900/10">
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ID</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">TIMESTAMP</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ACTION</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ITEM</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">CONTAINER</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">USER</th>
-                  <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">DETAILS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} className="border-b border-green-500/10 hover:bg-green-900/5">
-                    <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.id}</td>
-                    <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.timestamp}</td>
-                    <td className="border border-green-500/10 px-4 py-2 text-cyan-400 font-mono uppercase text-xs">{log.action}</td>
-                    <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.item_id || '-'}</td>
-                    <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.container_id || '-'}</td>
-                    <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.user}</td>
-                    <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.details || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : !isLoading && (
-          <p className="text-gray-500 font-mono text-xs">NO_LOGS_FOUND</p>
-        )}
-        
-        {isLoading && (
+        {isLoading ? (
           <div className="flex justify-center items-center py-10">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500/70"></div>
             <p className="ml-3 text-green-400 font-mono text-xs">RETRIEVING_DATA...</p>
           </div>
+        ) : logs.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-black/25 border border-green-500/10">
+                <thead>
+                  <tr className="bg-green-900/10">
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ID</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">TIMESTAMP</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ACTION</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ITEM</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">CONTAINER</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">USER</th>
+                    <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">DETAILS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-green-500/10 hover:bg-green-900/5">
+                      <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.id}</td>
+                      <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.timestamp}</td>
+                      <td className="border border-green-500/10 px-4 py-2 text-cyan-400 font-mono uppercase text-xs">{log.action}</td>
+                      <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.item_id || '-'}</td>
+                      <td className="border border-green-500/10 px-4 py-2 font-mono text-green-300 text-xs">{log.container_id || '-'}</td>
+                      <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.user}</td>
+                      <td className="border border-green-500/10 px-4 py-2 text-gray-400 text-xs">{log.details || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mt-4">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70 flex items-center"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                </button>
+                <span className="text-xs text-gray-400">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 rounded text-xs bg-gray-800/50 text-gray-400 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800/70 flex items-center"
+                >
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-gray-500 font-mono text-xs">NO_LOGS_FOUND</p>
         )}
       </div>
       

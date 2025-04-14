@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getRearrangementSuggestions, executeRearrangementPlan } from '../frontend-api';
-import { Loader, ArrowRight, RefreshCw, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { Loader, ArrowRight, RefreshCw, AlertTriangle, CheckCircle2, Info, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface RearrangementItem {
   item_id: string;
@@ -19,21 +19,35 @@ interface SuggestedMove {
 
 interface DisorganizedContainer {
   container_id: string;
-  efficiency: number;
-  accessibility_issues: number;
-  items_count: number;
+  inefficiency_score?: number;
+  volume_utilization?: number;
+  item_count?: number;
+  high_priority_items?: number;
+  low_priority_items?: number;
+  recommended_actions?: string;
+  efficiency?: number;
+  accessibility_issues?: number;
+  items_count?: number;
+  zone?: string;
 }
 
 interface RearrangementSuggestion {
-  suggested_moves: SuggestedMove[];
-  disorganized_containers: DisorganizedContainer[];
-  reason: string;
+  suggested_moves?: SuggestedMove[];
+  disorganized_containers?: DisorganizedContainer[];
+  reason?: string;
+  success?: boolean;
+  message?: string;
+  total_steps?: number;
+  total_estimated_time?: number;
+  space_optimization?: number;
+  movements?: any[];
+  rearrangement_plan?: RearrangementItem[];
 }
 
 interface RearrangementResult {
   success: boolean;
   message: string;
-  results: Array<RearrangementItem & { success: boolean; message: string }>;
+  results?: Array<RearrangementItem & { success: boolean; message: string }>;
 }
 
 const RearrangePage = () => {
@@ -44,10 +58,20 @@ const RearrangePage = () => {
   const [executionResult, setExecutionResult] = useState<RearrangementResult | null>(null);
   const [rearrangementPlan, setRearrangementPlan] = useState<RearrangementItem[]>([]);
 
+  // Pagination state for disorganized containers
+  const [disorganizedPage, setDisorganizedPage] = useState(1);
+  const DISORGANIZED_ITEMS_PER_PAGE = 5;
+
+  // Pagination state for suggested moves
+  const [movesPage, setMovesPage] = useState(1);
+  const MOVES_PER_PAGE = 5;
+
   const fetchSuggestions = async () => {
     setLoading(true);
     setError(null);
     setExecutionResult(null);
+    setDisorganizedPage(1); // Reset page on fetch
+    setMovesPage(1); // Reset page on fetch
     
     try {
       const data = await getRearrangementSuggestions();
@@ -65,6 +89,16 @@ const RearrangePage = () => {
         }));
         
         setRearrangementPlan(plan);
+      } else if (data.movements && Array.isArray(data.movements)) {
+        // Format may be from the newer API
+        const plan = data.movements.map(move => ({
+          item_id: move.item_id,
+          item_name: move.item_name || move.item_id,
+          from_container: move.from_container_id || move.from_container,
+          to_container: move.to_container_id || move.to_container,
+          reason: move.description || move.reason || 'Optimization'
+        }));
+        setRearrangementPlan(plan);
       } else if (data.rearrangement_plan && Array.isArray(data.rearrangement_plan)) {
         // Fallback to old format if present
         setRearrangementPlan(data.rearrangement_plan);
@@ -74,6 +108,8 @@ const RearrangePage = () => {
     } catch (err) {
       console.error('Error fetching rearrangement suggestions:', err);
       setError('Failed to load rearrangement suggestions');
+      setSuggestions(null);
+      setRearrangementPlan([]);
     } finally {
       setLoading(false);
     }
@@ -88,6 +124,7 @@ const RearrangePage = () => {
     setError(null);
     
     try {
+      // Use the original API call format - send the entire plan array
       const result = await executeRearrangementPlan(rearrangementPlan);
       setExecutionResult(result);
       
@@ -105,27 +142,44 @@ const RearrangePage = () => {
     fetchSuggestions();
   }, []);
 
-  // Helper function to determine if there are any rearrangement suggestions
+  // Memoized paginated data for disorganized containers
+  const paginatedDisorganized = useMemo(() => {
+    if (!suggestions?.disorganized_containers) return [];
+    const startIndex = (disorganizedPage - 1) * DISORGANIZED_ITEMS_PER_PAGE;
+    return suggestions.disorganized_containers.slice(startIndex, startIndex + DISORGANIZED_ITEMS_PER_PAGE);
+  }, [suggestions, disorganizedPage]);
+
+  const totalDisorganizedPages = useMemo(() => {
+    if (!suggestions?.disorganized_containers) return 1;
+    return Math.ceil(suggestions.disorganized_containers.length / DISORGANIZED_ITEMS_PER_PAGE);
+  }, [suggestions]);
+
+  // Memoized paginated data for suggested moves
+  const paginatedMoves = useMemo(() => {
+    if (!rearrangementPlan) return [];
+    const startIndex = (movesPage - 1) * MOVES_PER_PAGE;
+    return rearrangementPlan.slice(startIndex, startIndex + MOVES_PER_PAGE);
+  }, [rearrangementPlan, movesPage]);
+
+  const totalMovesPages = useMemo(() => {
+    if (!rearrangementPlan) return 1;
+    return Math.ceil(rearrangementPlan.length / MOVES_PER_PAGE);
+  }, [rearrangementPlan]);
+
   const hasRearrangementSuggestions = () => {
     if (!suggestions) return false;
     
-    // Check for new format
-    if (suggestions.suggested_moves) {
-      return suggestions.suggested_moves.length > 0;
-    }
-    // Fallback to old format
-    return false;
+    // Check for plan
+    return rearrangementPlan.length > 0;
   };
 
-  // Helper function to determine if there are any disorganized containers
   const hasDisorganizedContainers = () => {
     if (!suggestions) return false;
     
-    // Check for new format
+    // Check for disorganized containers
     if (suggestions.disorganized_containers) {
       return suggestions.disorganized_containers.length > 0;
     }
-    // Fallback to old format
     return false;
   };
 
@@ -145,7 +199,7 @@ const RearrangePage = () => {
               : 'bg-green-900/30 text-green-400 hover:bg-green-900/50 border border-green-500/30'
           }`}
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'CALCULATING...' : 'REFRESH SUGGESTIONS'}
         </button>
       </div>
@@ -183,146 +237,164 @@ const RearrangePage = () => {
           <p className="text-xs text-gray-400">ERROR CODE: CARGO-REARRANGE-001</p>
         </div>
       ) : !suggestions || (!hasRearrangementSuggestions() && !hasDisorganizedContainers()) ? (
-        <div className="border border-yellow-500/30 bg-yellow-900/10 rounded-md p-6 text-center">
-          <Info className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
-          <p className="text-yellow-400 mb-2">NO REARRANGEMENT NEEDED</p>
-          <p className="text-xs text-gray-400">All containers are efficiently organized</p>
+        <div className="border border-green-500/30 bg-green-900/10 rounded-md p-6 text-center">
+          <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-3" />
+          <p className="text-green-400 mb-2">SYSTEM OPTIMIZED</p>
+          <p className="text-xs text-gray-400">No rearrangement needed at this time.</p>
         </div>
       ) : (
         <div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
-              <div className="text-green-400 text-sm font-bold mb-3">{'// CONTAINER STATUS'}</div>
-              <div className="space-y-4">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">DISORGANIZED CONTAINERS</div>
-                  {hasDisorganizedContainers() ? (
-                    <div className="bg-orange-900/20 border border-orange-900/30 rounded p-2">
-                      {suggestions.disorganized_containers.map((container) => (
-                        <span key={container.container_id} className="inline-block bg-black/40 text-orange-400 text-xs px-2 py-1 rounded mr-2 mb-2">
-                          {container.container_id} (Efficiency: {Math.round(container.efficiency * 100)}%)
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="bg-green-900/20 border border-green-900/30 rounded p-2 text-green-400 text-xs">
-                      No disorganized containers detected
-                    </div>
-                  )}
-                </div>
-                
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">MOVEABLE ITEMS</div>
-                  <div className="text-green-400">
-                    {rearrangementPlan.length} items can be optimally relocated
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">OVERALL REASON</div>
-                  <div className="text-green-400">
-                    {suggestions.reason || "Container optimization"}
-                  </div>
-                </div>
+          {/* --- Disorganized Containers Section --- */}
+          {hasDisorganizedContainers() && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-green-400 mb-3 border-b border-green-700/30 pb-1">DISORGANIZED CONTAINERS</h3>
+              <div className="bg-gray-950 border border-green-800/30 rounded-md overflow-hidden">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-green-900/20 text-xs text-green-500 uppercase tracking-wider">
+                    <tr>
+                      <th scope="col" className="px-4 py-2">Container ID</th>
+                      <th scope="col" className="px-4 py-2">Efficiency (%)</th> 
+                      <th scope="col" className="px-4 py-2">Accessibility</th>
+                      <th scope="col" className="px-4 py-2">Items</th>
+                      <th scope="col" className="px-4 py-2">Zone</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-green-900/30">
+                    {paginatedDisorganized.map((container) => (
+                      <tr key={container.container_id} className="hover:bg-green-900/5">
+                        <td className="px-4 py-2 font-medium text-green-300 whitespace-nowrap">{container.container_id}</td>
+                        <td className="px-4 py-2 text-gray-300">
+                          {/* Fallback to different property names based on API structure */}
+                          {container.inefficiency_score !== undefined 
+                            ? `${(100 - container.inefficiency_score * 100).toFixed(1)}` 
+                            : container.efficiency !== undefined 
+                              ? `${(container.efficiency * 100).toFixed(1)}` 
+                              : 'N/A'}
+                        </td>
+                        <td className="px-4 py-2 text-gray-300">
+                          {container.accessibility_issues !== undefined 
+                            ? container.accessibility_issues 
+                            : 'N/A'}
+                        </td>
+                        <td className="px-4 py-2 text-gray-300">
+                          {/* Fallback to different property names */}
+                          {container.item_count !== undefined 
+                            ? container.item_count 
+                            : container.items_count !== undefined 
+                              ? container.items_count 
+                              : 'N/A'}
+                        </td>
+                        <td className="px-4 py-2 text-gray-300">{container.zone || 'N/A'}</td>
+                      </tr>
+                    ))}
+                    {paginatedDisorganized.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="text-center py-4 text-gray-500">No disorganized containers found in this view.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
+              {/* Pagination Controls for Disorganized Containers */}
+              {totalDisorganizedPages > 1 && (
+                <div className="flex justify-between items-center mt-3 text-sm text-gray-400">
+                  <button
+                    onClick={() => setDisorganizedPage(p => Math.max(1, p - 1))}
+                    disabled={disorganizedPage === 1}
+                    className="px-3 py-1 rounded bg-green-900/30 hover:bg-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                  </button>
+                  <span>Page {disorganizedPage} of {totalDisorganizedPages}</span>
+                  <button
+                    onClick={() => setDisorganizedPage(p => Math.min(totalDisorganizedPages, p + 1))}
+                    disabled={disorganizedPage === totalDisorganizedPages}
+                    className="px-3 py-1 rounded bg-green-900/30 hover:bg-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    Next <ChevronRight className="h-4 w-4 ml-1" />
+                  </button>
+                </div>
+              )}
             </div>
-            
-            <div className="bg-gray-950 border border-green-800/30 rounded-md p-4">
-              <div className="text-green-400 text-sm font-bold mb-3">{'// OPTIMIZATION METRICS'}</div>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <div className="text-xs text-gray-500">SUGGESTED MOVES:</div>
-                  <div className="text-green-400">{rearrangementPlan.length}</div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="text-xs text-gray-500">OPTIMIZATION STATUS:</div>
-                  <div className={rearrangementPlan.length > 0 ? "text-yellow-400" : "text-green-400"}>
-                    {rearrangementPlan.length > 0 ? "OPTIMIZATION AVAILABLE" : "FULLY OPTIMIZED"}
-                  </div>
-                </div>
-                <div className="flex justify-between">
-                  <div className="text-xs text-gray-500">PRIMARY ISSUE:</div>
-                  <div className="text-orange-400">
-                    {hasDisorganizedContainers()
-                      ? "ACCESS OPTIMIZATION NEEDED" 
-                      : hasRearrangementSuggestions()
-                        ? "POSITION OPTIMIZATION NEEDED" 
-                        : "NO CRITICAL ISSUES"}
-                  </div>
-                </div>
+          )}
+
+          {/* --- Suggested Moves Section --- */}
+          {hasRearrangementSuggestions() && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-green-400 mb-3 border-b border-green-700/30 pb-1">SUGGESTED MOVES ({rearrangementPlan.length} total)</h3>
+              <div className="bg-gray-950 border border-green-800/30 rounded-md overflow-hidden">
+                 <table className="w-full text-sm text-left">
+                    <thead className="bg-green-900/20 text-xs text-green-500 uppercase tracking-wider">
+                        <tr>
+                          <th scope="col" className="px-4 py-2">Item ID</th>
+                          <th scope="col" className="px-4 py-2">Name</th>
+                          <th scope="col" className="px-4 py-2">From Container</th>
+                          <th scope="col" className="px-4 py-2">To Container</th>
+                          <th scope="col" className="px-4 py-2">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-green-900/30">
+                        {paginatedMoves.map((item, index) => (
+                        <tr key={`${item.item_id}-${index}`} className="hover:bg-green-900/5">
+                            <td className="px-4 py-2 font-medium text-green-300 whitespace-nowrap">{item.item_id}</td>
+                            <td className="px-4 py-2 text-gray-300 truncate max-w-xs">{item.item_name}</td>
+                            <td className="px-4 py-2 text-gray-300">{item.from_container}</td>
+                            <td className="px-4 py-2 text-green-400 font-semibold">{item.to_container}</td>
+                            <td className="px-4 py-2 text-gray-400 text-xs">{item.reason || '-'}</td>
+                        </tr>
+                        ))}
+                         {paginatedMoves.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="text-center py-4 text-gray-500">No suggested moves found in this view.</td>
+                          </tr>
+                        )}
+                    </tbody>
+                 </table>
               </div>
-            </div>
-          </div>
-          
-          {rearrangementPlan.length > 0 && (
-            <div className="mt-8">
-              <div className="flex justify-between items-center mb-4">
-                <div className="text-green-400 text-sm font-bold">{'// REARRANGEMENT PLAN'}</div>
+               {/* Pagination Controls for Suggested Moves */}
+              {totalMovesPages > 1 && (
+                <div className="flex justify-between items-center mt-3 text-sm text-gray-400">
+                  <button
+                    onClick={() => setMovesPage(p => Math.max(1, p - 1))}
+                    disabled={movesPage === 1}
+                    className="px-3 py-1 rounded bg-green-900/30 hover:bg-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+                  </button>
+                  <span>Page {movesPage} of {totalMovesPages}</span>
+                  <button
+                    onClick={() => setMovesPage(p => Math.min(totalMovesPages, p + 1))}
+                    disabled={movesPage === totalMovesPages}
+                    className="px-3 py-1 rounded bg-green-900/30 hover:bg-green-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    Next <ChevronRight className="h-4 w-4 ml-1" />
+                  </button>
+                </div>
+              )}
+
+              {/* Execute Plan Button */}
+              <div className="mt-6 text-center">
                 <button
                   onClick={handleExecutePlan}
-                  disabled={executing}
-                  className={`flex items-center px-4 py-2 rounded text-sm ${
-                    executing
-                      ? 'bg-gray-800 text-gray-500 cursor-wait'
+                  disabled={loading || executing || rearrangementPlan.length === 0}
+                  className={`inline-flex items-center px-6 py-2 rounded-md font-semibold ${
+                    executing 
+                      ? 'bg-gray-800 text-gray-500 cursor-wait' 
                       : 'bg-green-900/40 text-green-400 hover:bg-green-900/60 border border-green-500/30'
-                  }`}
+                  } disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   {executing ? (
                     <>
-                      <Loader className="h-4 w-4 mr-2 animate-spin" />
+                      <Loader className="h-5 w-5 animate-spin mr-2" />
                       EXECUTING...
                     </>
                   ) : (
-                    'EXECUTE PLAN'
+                    <>
+                      <ArrowRight className="h-5 w-5 mr-2" />
+                      EXECUTE REARRANGEMENT PLAN ({rearrangementPlan.length} moves)
+                    </>
                   )}
                 </button>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full bg-black/25 border border-green-500/10">
-                  <thead className="bg-green-900/10">
-                    <tr>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">ITEM</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">FROM</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">TO</th>
-                      <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">REASON</th>
-                      {executionResult && (
-                        <th className="border border-green-500/10 px-4 py-2 text-left text-green-400 font-mono text-xs">STATUS</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rearrangementPlan.map((move, index) => {
-                      // Find the corresponding result from the execution if available
-                      const result = executionResult?.results?.find(r => r.item_id === move.item_id);
-                      
-                      return (
-                        <tr key={index} className="border-b border-green-500/10 hover:bg-green-900/5">
-                          <td className="border border-green-500/10 px-4 py-2">
-                            <div className="font-mono text-green-300 text-xs">{move.item_id}</div>
-                            {move.item_name && move.item_name !== move.item_id && (
-                              <div className="text-gray-400 text-xs">{move.item_name}</div>
-                            )}
-                          </td>
-                          <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">{move.from_container}</td>
-                          <td className="border border-green-500/10 px-4 py-2 text-gray-400 font-mono text-xs">{move.to_container}</td>
-                          <td className="border border-green-500/10 px-4 py-2 text-gray-500 text-xs">{move.reason || "Optimize arrangement"}</td>
-                          {executionResult && (
-                            <td className="border border-green-500/10 px-4 py-2">
-                              {result ? (
-                                <div className={result.success ? "text-green-400 text-xs" : "text-red-400 text-xs"}>
-                                  {result.success ? "SUCCESS" : "FAILED"}
-                                </div>
-                              ) : (
-                                <div className="text-gray-500 text-xs">PENDING</div>
-                              )}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
               </div>
             </div>
           )}
