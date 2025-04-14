@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
 from loguru import logger
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import io
@@ -1199,6 +1199,225 @@ def get_db_with_fallback():
 @app.post("/api/placement", response_model=None)
 async def api_placement(request: Request, db: Session = Depends(get_db)):
     try:
+        body = await request.json()
+        
+        # Check if this is a bulk operation with specific items
+        items_list = body.get("items", [])
+        is_rearrangement = body.get("rearrangement", False)
+        
+        # If we have a list of items to place, handle them individually
+        if items_list and isinstance(items_list, list):
+            logger.info(f"Processing bulk item placement request: {len(items_list)} items, rearrangement={is_rearrangement}")
+            
+            placed_items = []
+            failed_items = []
+            
+            for item_data in items_list:
+                item_id = item_data.get("id")
+                container_id = item_data.get("containerId")
+                from_container = item_data.get("from_container")
+                auto_position = item_data.get("auto_position", True)
+                
+                # Skip invalid entries
+                if not item_id or not container_id:
+                    logger.warning(f"Skipping invalid item in bulk request (missing id or containerId)")
+                    continue
+                
+                # Get the item
+                item = db.query(Item).filter(Item.id == item_id).first()
+                if not item:
+                    logger.warning(f"Item {item_id} not found, skipping")
+                    failed_items.append({
+                        "id": item_id,
+                        "success": False,
+                        "message": "Item not found"
+                    })
+                    continue
+                
+                # Get the target container
+                container = db.query(Container).filter(Container.id == container_id).first()
+                if not container:
+                    logger.warning(f"Container {container_id} not found, skipping")
+                    failed_items.append({
+                        "id": item_id,
+                        "success": False,
+                        "message": f"Container {container_id} not found"
+                    })
+                    continue
+                
+                # Check if the container has capacity
+                current_items = db.query(Item).filter(
+                    Item.container_id == container_id,
+                    Item.is_placed == True
+                ).count()
+                
+                if current_items >= container.capacity and (not is_rearrangement or from_container != container_id):
+                    logger.warning(f"Container {container_id} is at capacity, cannot place item {item_id}")
+                    failed_items.append({
+                        "id": item_id,
+                        "success": False,
+                        "message": f"Container {container_id} is at capacity"
+                    })
+                    continue
+                
+                # For rearrangements, special handling for from/to containers
+                if is_rearrangement and from_container:
+                    if from_container == container_id:
+                        # Item is already in the correct container, might just need position update
+                        logger.info(f"Item {item_id} is already in container {container_id}, updating position")
+                    else:
+                        # Moving from one container to another
+                        logger.info(f"Moving item {item_id} from {from_container} to {container_id}")
+                        
+                        # Log the removal from the source container
+                        if item.container_id == from_container:
+                            try:
+                                log_action(db, "item_removed", item_id, from_container, "system",
+                                          f"Item removed from {from_container} during rearrangement to {container_id}")
+                            except Exception as log_error:
+                                logger.warning(f"Could not log removal action: {str(log_error)}")
+                
+                # Auto-calculate position if requested
+                position_x, position_y, position_z = 0, 0, 0
+                
+                if auto_position:
+                    # Get all items in the container to find suitable position
+                    container_items = db.query(Item).filter(
+                        Item.container_id == container_id,
+                        Item.is_placed == True,
+                        Item.id != item_id  # Exclude the current item in case of updates
+                    ).all()
+                    
+                    # Find occupied spaces
+                    occupied_spaces = []
+                    for existing_item in container_items:
+                        occupied_spaces.append({
+                            'x1': existing_item.position_x,
+                            'y1': existing_item.position_y,
+                            'z1': existing_item.position_z,
+                            'x2': existing_item.position_x + existing_item.width,
+                            'y2': existing_item.position_y + existing_item.height,
+                            'z2': existing_item.position_z + existing_item.depth
+                        })
+                    
+                    # Simple placement algorithm - start at (0,0,0) and check in grid fashion
+                    position_found = False
+                    step = 0.5  # Increment size
+                    max_attempts = 1000
+                    attempt = 0
+                    
+                    # Strategy: Try to place at floor level (z=0) with increasing x,y
+                    position_x = 0
+                    position_y = 0
+                    position_z = 0
+                    
+                    while not position_found and attempt < max_attempts:
+                        # Check if position is valid (within container and no overlap)
+                        if (position_x + item.width <= container.width and
+                            position_y + item.height <= container.height and
+                            position_z + item.depth <= container.depth):
+                            
+                            # Check for overlap with existing items
+                            overlap = False
+                            for space in occupied_spaces:
+                                if not (position_x >= space['x2'] or
+                                        position_x + item.width <= space['x1'] or
+                                        position_y >= space['y2'] or
+                                        position_y + item.height <= space['y1'] or
+                                        position_z >= space['z2'] or
+                                        position_z + item.depth <= space['z1']):
+                                    overlap = True
+                                    break
+                            
+                            if not overlap:
+                                position_found = True
+                                break
+                        
+                        # If overlap or outside bounds, try next position
+                        position_x += step
+                        if position_x + item.width > container.width:
+                            position_x = 0
+                            position_y += step
+                            
+                            if position_y + item.height > container.height:
+                                position_y = 0
+                                position_z += step
+                                
+                                if position_z + item.depth > container.depth:
+                                    # We've tried all positions
+                                    break
+                        
+                        attempt += 1
+                    
+                    if not position_found:
+                        logger.warning(f"Could not find suitable position for item {item_id} in container {container_id}")
+                        failed_items.append({
+                            "id": item_id,
+                            "success": False,
+                            "message": f"Could not find a suitable position in container {container_id}"
+                        })
+                        continue
+                
+                # Update item placement
+                item.container_id = container_id
+                item.position_x = position_x
+                item.position_y = position_y
+                item.position_z = position_z
+                item.is_placed = True
+                
+                # Add to placed items list
+                placed_items.append({
+                    "id": item_id,
+                    "container_id": container_id,
+                    "position": {
+                        "x": position_x,
+                        "y": position_y,
+                        "z": position_z
+                    },
+                    "success": True
+                })
+                
+                # Log the placement
+                operation = "Rearrangement" if is_rearrangement else "Bulk placement"
+                try:
+                    log_action(db, "placement", item_id, container_id, "system", 
+                              f"{operation}: Item placed in container at position ({position_x:.1f}, {position_y:.1f}, {position_z:.1f})")
+                except Exception as log_error:
+                    logger.warning(f"Could not log action: {str(log_error)}")
+            
+            # Save all changes
+            db.commit()
+            
+            # Force a refresh of container data in the cache
+            try:
+                # Update container item counts in the database
+                for container_id in set([item_data.get("containerId") for item_data in items_list if item_data.get("containerId")] + 
+                                     [item_data.get("from_container") for item_data in items_list if item_data.get("from_container")]):
+                    if not container_id:
+                        continue
+                        
+                    # Get fresh count of items in this container after all operations
+                    container = db.query(Container).filter(Container.id == container_id).first()
+                    if container:
+                        # Count items currently in the container
+                        current_item_count = db.query(Item).filter(
+                            Item.container_id == container_id,
+                            Item.is_placed == True
+                        ).count()
+                        
+                        # Log updated container status after rearrangement
+                        logger.info(f"Container {container_id} has {current_item_count}/{container.capacity} items after rearrangement")
+            except Exception as e:
+                logger.warning(f"Error refreshing container data: {str(e)}")
+            
+            return {
+                "success": len(placed_items) > 0,
+                "message": f"Placed {len(placed_items)} items, {len(failed_items)} items failed",
+                "placed_items": placed_items,
+                "failed_items": failed_items
+            }
+        
+        # If no specific items, run the general placement algorithm
         # Initialize the placement service
         placement_service = PlacementService(db)
         
@@ -1487,17 +1706,19 @@ async def api_place(
 ):
     try:
         # Extract parameters
-        item_id = body.get("itemId")
-        container_id = body.get("containerId")
+        item_id = body.get("item_id") or body.get("itemId")
+        container_id = body.get("container_id") or body.get("containerId")
         position_x = body.get("position_x", 0)
-        position_y = body.get("position_y", 0)
+        position_y = body.get("position_y", 0) 
         position_z = body.get("position_z", 0)
-        user_id = body.get("userId", "system")
+        user_id = body.get("astronaut") or body.get("userId", "system")
+        
+        auto_calculate = position_x < 0 or position_y < 0 or position_z < 0
         
         if not item_id or not container_id:
             return {
                 "success": False,
-                "message": "Missing required parameters: itemId and containerId"
+                "message": "Missing required parameters: item_id and container_id"
             }
         
         # Get the item
@@ -1529,24 +1750,121 @@ async def api_place(
                 "message": f"Container {container_id} is at capacity ({items_in_container}/{container.capacity})"
             }
             
-        # Validate dimensions
-        if position_x < 0 or position_x + item.width > container.width:
-            return {
-                "success": False,
-                "message": f"Item width exceeds container boundaries or invalid x position"
-            }
+        # Auto-calculate coordinates if requested
+        if auto_calculate:
+            # Get all items in the container to find suitable position
+            container_items = db.query(Item).filter(
+                Item.container_id == container_id,
+                Item.is_placed == True
+            ).all()
             
-        if position_y < 0 or position_y + item.height > container.height:
-            return {
-                "success": False,
-                "message": f"Item height exceeds container boundaries or invalid y position"
-            }
+            # Find occupied spaces
+            occupied_spaces = []
+            for existing_item in container_items:
+                occupied_spaces.append({
+                    'x1': existing_item.position_x,
+                    'y1': existing_item.position_y,
+                    'z1': existing_item.position_z,
+                    'x2': existing_item.position_x + existing_item.width,
+                    'y2': existing_item.position_y + existing_item.height,
+                    'z2': existing_item.position_z + existing_item.depth
+                })
             
-        if position_z < 0 or position_z + item.depth > container.depth:
-            return {
-                "success": False,
-                "message": f"Item depth exceeds container boundaries or invalid z position"
-            }
+            # Simple placement algorithm - start at (0,0,0) and check in grid fashion
+            position_found = False
+            step = 0.5  # Increment size
+            
+            # Strategy: Try to place at floor level (z=0) with increasing x,y
+            position_x = 0
+            position_y = 0
+            position_z = 0
+            
+            # Search for the first available spot
+            while position_x + item.width <= container.width and not position_found:
+                position_y = 0
+                while position_y + item.height <= container.height and not position_found:
+                    # Check if this position collides with any item
+                    collision = False
+                    for space in occupied_spaces:
+                        # Check for overlap - if any of these conditions is true, there's no overlap
+                        if not (position_x + item.width <= space['x1'] or  # item is left of obstacle
+                                position_x >= space['x2'] or               # item is right of obstacle
+                                position_y + item.height <= space['y1'] or # item is below obstacle
+                                position_y >= space['y2'] or               # item is above obstacle
+                                position_z + item.depth <= space['z1'] or  # item is in front of obstacle
+                                position_z >= space['z2']):               # item is behind obstacle
+                            collision = True
+                            break
+                    
+                    if not collision:
+                        position_found = True
+                        break
+                    
+                    position_y += step
+                
+                if not position_found:
+                    position_x += step
+            
+            # If we couldn't find a position at z=0, try increasing z
+            if not position_found:
+                position_z = 0.5  # Start at higher level
+                position_x = 0
+                
+                while position_z + item.depth <= container.depth and not position_found:
+                    position_x = 0
+                    while position_x + item.width <= container.width and not position_found:
+                        position_y = 0
+                        while position_y + item.height <= container.height and not position_found:
+                            # Check if this position collides with any item
+                            collision = False
+                            for space in occupied_spaces:
+                                # Check for overlap
+                                if not (position_x + item.width <= space['x1'] or
+                                        position_x >= space['x2'] or
+                                        position_y + item.height <= space['y1'] or
+                                        position_y >= space['y2'] or
+                                        position_z + item.depth <= space['z1'] or
+                                        position_z >= space['z2']):
+                                    collision = True
+                                    break
+                            
+                            if not collision:
+                                position_found = True
+                                break
+                            
+                            position_y += step
+                        
+                        if not position_found:
+                            position_x += step
+                    
+                    if not position_found:
+                        position_z += step
+            
+            # If we still can't find a position, return an error
+            if not position_found:
+                return {
+                    "success": False,
+                    "message": f"Could not find a suitable position for item in container {container_id}. Container may be geometrically full."
+                }
+        else:
+            # Validate dimensions if coordinates are manually provided
+            if position_x < 0 or position_x + item.width > container.width:
+                return {
+                    "success": False,
+                    "message": f"Item width exceeds container boundaries or invalid x position"
+                }
+                
+            if position_y < 0 or position_y + item.height > container.height:
+                return {
+                    "success": False,
+                    "message": f"Item height exceeds container boundaries or invalid y position"
+                }
+                
+            if position_z < 0 or position_z + item.depth > container.depth:
+                return {
+                    "success": False,
+                    "message": f"Item depth exceeds container boundaries or invalid z position"
+                }
             
         # Update item placement
         item.container_id = container_id
@@ -1559,8 +1877,9 @@ async def api_place(
         db.commit()
         
         # Log the placement
+        placement_type = "Auto-calculated" if auto_calculate else "Manual"
         log_action(db, "placement", item_id, container_id, user_id, 
-                  f"Item placed in container at position ({position_x}, {position_y}, {position_z})")
+                  f"{placement_type} placement in container at position ({position_x:.1f}, {position_y:.1f}, {position_z:.1f})")
         
         return {
             "success": True,
@@ -1582,7 +1901,7 @@ async def api_place(
         raise
     
     except Exception as e:
-        logger.error(f"Error placing item {body.get('itemId')}: {str(e)}")
+        logger.error(f"Error placing item {body.get('itemId') or body.get('item_id')}: {str(e)}")
         return {
             "success": False,
             "message": f"Error placing item: {str(e)}"
@@ -2423,7 +2742,7 @@ if __name__ == "__main__":
     try:
         # Run the server with uvicorn
         import uvicorn
-        logger.info("Starting server on port 8001")
-        uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
+        logger.info("Starting server on port 8000")
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as e:
         logger.error(f"Error starting server: {str(e)}") 

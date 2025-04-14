@@ -164,6 +164,8 @@ class RearrangementMovement(BaseModel):
     item_name: str
     from_container_id: Optional[str] = None
     to_container_id: str
+    from_zone: Optional[str] = None
+    to_zone: Optional[str] = None
     estimated_time: float  # Time in minutes
     priority: int
     description: str

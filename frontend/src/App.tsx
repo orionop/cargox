@@ -11,6 +11,7 @@ import Waste from './pages/Waste';
 import Logs from './pages/Logs';
 import Items from './pages/Items';
 import Rearrange from './pages/Rearrange';
+import TestAnimation from './pages/TestAnimation';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
           <Route path="waste" element={<Waste />} />
           <Route path="logs" element={<Logs />} />
           <Route path="rearrange" element={<Rearrange />} />
+          <Route path="test-animation" element={<TestAnimation />} />
         </Route>
       </Routes>
     </BrowserRouter>

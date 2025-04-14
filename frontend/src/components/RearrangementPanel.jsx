@@ -478,6 +478,9 @@ const RearrangementPanel = () => {
                             <ArrowForwardIcon sx={{ mx: 1 }} fontSize="small" />
                             <Typography variant="body2">{movement.to_container_id}</Typography>
                           </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            From zone: {movement.from_zone || '-'} → To zone: {movement.to_zone || '-'}
+                          </Typography>
                         </TableCell>
                         <TableCell>
                           <Chip 

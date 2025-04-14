@@ -75,38 +75,63 @@ export async function placeItems() {
  */
 export async function retrieveItem(itemId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
-    const data = await response.json();
-    console.log('Item search response:', data);
+    // First search for the item to get its details
+    const searchResponse = await fetch(`${API_BASE_URL}/api/search?itemId=${itemId}`);
+    const searchData = await searchResponse.json();
+    console.log('Item search response:', searchData);
     
-    // Construct a result object compatible with the retrieve page expectations
-    if (data && data.items && data.items.length > 0) {
-      const item = data.items[0];
-      console.log('Item position data:', item.position || { x: item.position_x, y: item.position_y, z: item.position_z });
+    if (searchData && searchData.items && searchData.items.length > 0) {
+      const item = searchData.items[0];
       
-      return {
-        found: true,
-        item_id: item.id,
-        path: [],
-        disturbed_items: [],
-        location: item.is_placed ? {
-          container: item.container_id,
-          position: item.position || {
-            x: item.position_x || 0,
-            y: item.position_y || 0,
-            z: item.position_z || 0
-          }
-        } : null,
-        retrieval_time: new Date().toISOString(),
-        retrieved_by: "system",
-        item: item
-      };
+      // If item is placed in a container, get retrieval path with obstructions
+      if (item.is_placed && item.container_id) {
+        // Get detailed retrieval information including obstructed items
+        const retrievalResponse = await fetch(`${API_BASE_URL}/retrieve/${item.id}`);
+        const retrievalData = await retrievalResponse.json();
+        console.log('Retrieval path data:', retrievalData);
+        
+        // Count steps needed (number of disturbed items)
+        const steps = retrievalData.disturbed_items.length;
+        
+        return {
+          found: true,
+          item_id: item.id,
+          path: retrievalData.path || [],
+          disturbed_items: retrievalData.disturbed_items || [],
+          steps: steps,
+          location: {
+            container: item.container_id,
+            position: item.position || {
+              x: item.position_x || 0,
+              y: item.position_y || 0,
+              z: item.position_z || 0
+            }
+          },
+          retrieval_time: retrievalData.retrieval_time || new Date().toISOString(),
+          retrieved_by: retrievalData.retrieved_by || "system",
+          item: item
+        };
+      } else {
+        // Item is not placed in a container, so return basic info
+        return {
+          found: true,
+          item_id: item.id,
+          path: [],
+          disturbed_items: [],
+          steps: 0,
+          location: null,
+          retrieval_time: new Date().toISOString(),
+          retrieved_by: "system",
+          item: item
+        };
+      }
     } else {
       return {
         found: false,
         item_id: itemId,
         path: [],
         disturbed_items: [],
+        steps: 0,
         location: null,
         retrieval_time: new Date().toISOString(),
         retrieved_by: "system"
@@ -351,50 +376,212 @@ export async function exportArrangement() {
  */
 export async function getRearrangementSuggestions() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/rearrangement-recommendation`, {
-      method: 'POST'
+    // Add timestamp to prevent caching
+    const timestamp = new Date().getTime();
+    
+    // First get all containers to check their capacity
+    console.log("Fetching all containers to check capacity...");
+    const containersResponse = await fetch(`${API_BASE_URL}/api/containers?t=${timestamp}`, {
+      headers: { 'Cache-Control': 'no-cache' }
     });
     
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Rearrangement API error:', errorData);
+    let containerCapacityMap = {};
+    if (containersResponse.ok) {
+      const containersData = await containersResponse.json();
+      // Create a map of container ID to available space
+      containerCapacityMap = containersData.containers.reduce((map, container) => {
+        const capacity = container.capacity || 10;
+        const totalItems = container.total_items || 0;
+        const availableSpace = capacity - totalItems;
+        
+        map[container.id] = {
+          hasSpace: availableSpace > 0,
+          zone: container.zone,
+          availableSpace: availableSpace,
+          capacity: capacity,
+          totalItems: totalItems
+        };
+        return map;
+      }, {});
+      
+      console.log("Container capacity map:", containerCapacityMap);
+    }
+    
+    // First try the newer API endpoint with more aggressive parameters
+    try {
+      const priorityThreshold = 50;  // Higher threshold to include more items
+      const maxMovements = 20;       // More movements allowed
+      const spaceTarget = 10.0;      // Lower space target for easier optimization
+
+      const response = await fetch(`${API_BASE_URL}/api/rearrangement?priority_threshold=${priorityThreshold}&max_movements=${maxMovements}&space_target=${spaceTarget}&t=${timestamp}`, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("New API rearrangement response:", data);
+        
+        // Make sure 'movements' array is properly formatted for the frontend
+        if (data.movements && Array.isArray(data.movements)) {
+          // Filter movements to only include those where target container has space
+          const filteredMovements = data.movements.filter(move => {
+            const toContainerId = move.to_container_id;
+            // Check if we have capacity info for this container and it has space
+            // Explicitly reject containers that have no space available
+            if (containerCapacityMap[toContainerId]) {
+              console.log(`Container ${toContainerId} capacity check: available space = ${containerCapacityMap[toContainerId].availableSpace}`);
+              return containerCapacityMap[toContainerId].availableSpace > 0;
+            }
+            return true; // Include if no capacity info (will be checked during execution)
+          });
+          
+          console.log(`Filtered movements: ${filteredMovements.length} of ${data.movements.length} (removed ${data.movements.length - filteredMovements.length} to full containers)`);
+          
+          // Add a rearrangement_plan array for backward compatibility
+          data.rearrangement_plan = filteredMovements.map(move => ({
+            item_id: move.item_id,
+            item_name: move.item_name || move.item_id, 
+            from_container: move.from_container_id,
+            to_container: move.to_container_id,
+            reason: move.description || "Optimize container space"
+          }));
+        } else {
+          // If no movements, ensure we have an empty array instead of null
+          data.rearrangement_plan = [];
+        }
+        
+        // Format disorganized_containers to ensure they have all required fields
+        if (data.disorganized_containers && Array.isArray(data.disorganized_containers)) {
+          data.disorganized_containers = data.disorganized_containers.map(container => ({
+            container_id: container.id,
+            zone: container.zone || 'N/A',
+            efficiency_score: container.efficiency_score || 0,
+            inefficiency_score: container.inefficiency_score || 0,
+            total_items: container.total_items || 0,
+            items_count: container.total_items || 0,
+            type: container.type || 'storage',
+            // Add capacity info
+            capacity: container.capacity || 10,
+            available_space: (container.capacity || 10) - (container.total_items || 0)
+          }));
+        }
+        
+        // Add timestamp to response
+        data.timestamp = timestamp;
+        
+        return data;
+      }
+    } catch (newApiError) {
+      console.log("Error using new API:", newApiError);
+      // Continue to try legacy API
+    }
+    
+    // Fallback to old API if new one failed
+    console.log("Trying legacy rearrangement endpoint...");
+    const legacyResponse = await fetch(`${API_BASE_URL}/api/rearrangement-recommendation?t=${timestamp}`, {
+      method: 'POST',
+      headers: {
+        'Cache-Control': 'no-cache',
+      }
+    });
+    
+    if (!legacyResponse.ok) {
+      const errorData = await legacyResponse.json();
+      console.error('Legacy rearrangement API error:', errorData);
       throw new Error(errorData.detail || 'Failed to get rearrangement suggestions');
     }
     
-    const data = await response.json();
+    const legacyData = await legacyResponse.json();
+    console.log("Legacy API rearrangement response:", legacyData);
     
-    // Handle response format compatibility
-    if (!data.suggested_moves && !data.rearrangement_plan) {
-      // If neither format is present, create a default structure
+    // If legacy data has no rearrangement information, return with empty arrays, not fake data
+    if (!legacyData.suggested_moves && !legacyData.rearrangement_plan) {
       return {
+        success: true,
+        message: "No rearrangement needed",
         suggested_moves: [],
-        disorganized_containers: [],
-        reason: "No rearrangement needed"
+        disorganized_containers: legacyData.disorganized_containers || [],
+        movements: [],
+        rearrangement_plan: [],
+        timestamp: timestamp
       };
     }
     
-    // If data is in old format, convert it
-    if (data.rearrangement_plan && !data.suggested_moves) {
-      return {
-        suggested_moves: data.rearrangement_plan.map(item => ({
-          item_id: item.item_id,
-          from_container: item.from_container,
-          suggested_containers: [item.to_container],
-          reason: item.reason || "Container optimization"
-        })),
-        disorganized_containers: data.disorganized_containers 
-          ? data.disorganized_containers.map(id => ({
-              container_id: id,
-              efficiency: 0.7, // Default value
-              accessibility_issues: 1,
-              items_count: 0
-            }))
-          : [],
-        reason: "Container optimization required"
-      };
+    // If legacy data has suggested_moves but no rearrangement_plan, create it
+    if (legacyData.suggested_moves && Array.isArray(legacyData.suggested_moves)) {
+      // Filter suggested moves to only include those where target container has space
+      const filteredMoves = legacyData.suggested_moves.filter(move => {
+        // Get the first suggested container
+        const suggestedContainer = move.suggested_containers && move.suggested_containers.length > 0 
+          ? move.suggested_containers[0]
+          : null;
+        
+        // If no container suggested or no capacity info, include it
+        if (!suggestedContainer || !containerCapacityMap[suggestedContainer]) return true;
+        
+        // Only include if container has space
+        return containerCapacityMap[suggestedContainer].hasSpace;
+      });
+      
+      console.log(`Filtered legacy moves: ${filteredMoves.length} of ${legacyData.suggested_moves.length} (removed ${legacyData.suggested_moves.length - filteredMoves.length} to full containers)`);
+      
+      // Update the suggested_moves
+      legacyData.suggested_moves = filteredMoves;
+      
+      // Create rearrangement_plan if it doesn't exist
+      if (!legacyData.rearrangement_plan || !legacyData.rearrangement_plan.length) {
+        legacyData.rearrangement_plan = filteredMoves.map(move => ({
+          item_id: move.item_id,
+          item_name: move.item_id, // Use ID as name if not provided
+          from_container: move.from_container,
+          to_container: move.suggested_containers && move.suggested_containers.length > 0 
+            ? move.suggested_containers[0] 
+            : "Unknown",
+          reason: move.reason || "Optimize container space"
+        }));
+      }
     }
     
-    return data;
+    // Format disorganized_containers for consistent structure
+    if (legacyData.disorganized_containers && Array.isArray(legacyData.disorganized_containers)) {
+      legacyData.disorganized_containers = legacyData.disorganized_containers.map(container => {
+        // If container is just an ID string
+        const containerId = typeof container === 'string' ? container : (container.id || container.container_id);
+        const capacityInfo = containerCapacityMap[containerId] || { hasSpace: true, availableSpace: 5 };
+        
+        if (typeof container === 'string') {
+          return {
+            container_id: container,
+            zone: capacityInfo.zone || 'N/A',
+            efficiency: 0.7,
+            efficiency_score: 70,
+            accessibility_issues: 1,
+            items_count: 0,
+            capacity: 10,
+            available_space: capacityInfo.availableSpace || 10
+          };
+        }
+        // If container is an object
+        return {
+          container_id: containerId,
+          zone: container.zone || capacityInfo.zone || 'N/A',
+          efficiency: container.efficiency || 0.7,
+          efficiency_score: container.efficiency_score || 70,
+          accessibility_issues: container.accessibility_issues || 1,
+          items_count: container.items_count || container.total_items || 0,
+          capacity: container.capacity || 10,
+          available_space: capacityInfo.availableSpace || (container.capacity || 10) - (container.items_count || container.total_items || 0)
+        };
+      });
+    }
+    
+    // Add timestamp to response
+    legacyData.timestamp = timestamp;
+    
+    return legacyData;
   } catch (error) {
     console.error('Error getting rearrangement suggestions:', error);
     throw error;
@@ -418,60 +605,103 @@ export async function executeRearrangementPlan(rearrangementPlan) {
       };
     }
     
-    // We'll implement this by moving each item to its target container
-    // This requires multiple API calls (one per item)
-    const results = [];
+    // Get a timestamp to prevent caching
+    const timestamp = new Date().getTime();
+    
+    // Format the rearrangement plan for the bulk /api/placement endpoint
+    // This follows the problem statement requirement of calling /api/placement with container and item data
+    const itemsToMove = rearrangementPlan.map(move => ({
+      id: move.item_id || move.itemId,
+      containerId: move.to_container || move.toContainer,
+      from_container: move.from_container || move.fromContainer,
+      auto_position: true // Use auto-positioning
+    }));
+    
+    console.log("Using bulk placement with /api/placement for rearrangement:", itemsToMove);
+    
+    // Call the bulk placement endpoint with all items at once
+    const response = await fetch(`${API_BASE_URL}/api/placement?t=${timestamp}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache'
+      },
+      body: JSON.stringify({
+        items: itemsToMove,
+        rearrangement: true // Flag to indicate this is a rearrangement operation
+      })
+    });
+    
+    const responseData = await response.json();
+    console.log("Bulk placement response:", responseData);
+    
+    // Process the results
+    let results = [];
     let successCount = 0;
     
-    for (const move of rearrangementPlan) {
-      try {
-        console.log(`Moving item ${move.item_id} from ${move.from_container} to ${move.to_container}`);
-        // Call the place API for each item
-        const response = await fetch(`${API_BASE_URL}/api/place`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            itemId: move.item_id,
-            containerId: move.to_container,
-            position_x: 0, // Default positions - the backend will find the best place
-            position_y: 0,
-            position_z: 0,
-            userId: "system"
-          }),
-        });
+    if (responseData.success || (responseData.placed_items?.length > 0 || responseData.failed_items?.length > 0)) {
+      // Handle cases where the overall call might report success but individual items failed,
+      // or where the call failed but provided detailed results.
+      results = rearrangementPlan.map(move => {
+        const itemId = move.item_id || move.itemId;
+        const toContainer = move.to_container || move.toContainer;
+        const fromContainer = move.from_container || move.fromContainer;
         
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || `Failed to move item ${move.item_id}`);
-        }
+        // Check if the item was successfully placed
+        const placedItem = responseData.placed_items?.find(item => item.id === itemId && item.success);
         
-        const result = await response.json();
-        
-        if (result.success) {
+        if (placedItem) {
           successCount++;
+          // Check if it was placed in the intended container or an alternative
+          const wasAlternative = placedItem.container_id !== toContainer;
+          return {
+            ...move,
+            success: true,
+            to_container: placedItem.container_id, // Use actual placed container
+            message: wasAlternative ? 
+              `Successfully moved ${itemId} from ${fromContainer} to ${placedItem.container_id} (alternative)` :
+              `Successfully moved ${itemId} from ${fromContainer} to ${toContainer}`
+          };
+        } else {
+          // Item failed to place, find the specific error message
+          const failedItemData = responseData.failed_items?.find(item => item.id === itemId);
+          return {
+            ...move,
+            success: false,
+            message: failedItemData?.message || `Failed to move ${itemId} to ${toContainer}` // Use specific message if available
+          };
         }
+      });
+    } else {
+      // If the bulk operation failed entirely and didn't provide details
+      results = rearrangementPlan.map(move => {
+        const itemId = move.item_id || move.itemId;
+        const toContainer = move.to_container || move.toContainer;
         
-        results.push({
-          ...move,
-          success: result.success,
-          message: result.message || (result.success ? 'Success' : 'Failed')
-        });
-      } catch (error) {
-        console.error(`Error moving item ${move.item_id}:`, error);
-        results.push({
+        return {
           ...move,
           success: false,
-          message: error.message || `Failed to move item ${move.item_id}`
-        });
-      }
+          // Use the overall error message from the backend response
+          message: responseData.message || `Failed to process move for ${itemId} to ${toContainer}`
+        };
+      });
+    }
+    
+    // Try to get a fresh data load after the moves
+    try {
+      console.log("Refreshing container data...");
+      await fetch(`${API_BASE_URL}/api/containers?refresh=true&t=${timestamp}`, {
+        headers: {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'}
+      });
+    } catch (e) {
+      console.log("Container refresh failed:", e);
     }
     
     return {
       success: successCount > 0,
       message: `Successfully moved ${successCount}/${rearrangementPlan.length} items`,
-      results
+      results,
+      timestamp: timestamp
     };
   } catch (error) {
     console.error('Error executing rearrangement plan:', error);

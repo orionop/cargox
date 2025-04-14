@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Loader, Terminal, ArrowRight, CheckCircle, AlertTriangle, CircleOff, ChevronLeft, ChevronRight } from 'lucide-react';
 import { retrieveItem, trackItemUsage } from '../frontend-api';
 import RetrievalAnimation from '../components/RetrievalAnimation';
+import PlaceItemForm from '../components/PlaceItemForm';
 
 interface ItemPosition {
   x: number;
@@ -31,6 +32,7 @@ interface RetrievalResult {
   item_id: string;
   path: string[];
   disturbed_items: string[];
+  steps: number;
   location?: {
     container: string;
     position: ItemPosition;
@@ -59,6 +61,9 @@ const RetrievePage = () => {
   const [showAnimationComplete, setShowAnimationComplete] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [logsPerPage] = useState<number>(10);
+  const [showPlaceForm, setShowPlaceForm] = useState<boolean>(false);
+  const [retrievedItemId, setRetrievedItemId] = useState<string>('');
+  const [retrievedItemName, setRetrievedItemName] = useState<string>('');
 
   const addLog = (message: string) => {
     setRetrievalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
@@ -88,6 +93,27 @@ const RetrievePage = () => {
       } else if (itemData.found) {
         if (itemData.location) {
           addLog(`SUCCESS: CARGO LOCATED IN CONTAINER ${itemData.location.container}`);
+          
+          // Log visibility and accessibility information
+          if (itemData.steps === 0) {
+            addLog(`ACCESSIBILITY STATUS: CARGO IS DIRECTLY VISIBLE AND ACCESSIBLE`);
+          } else {
+            addLog(`ACCESSIBILITY STATUS: CARGO IS OBSTRUCTED BY ${itemData.steps} ${itemData.steps === 1 ? 'ITEM' : 'ITEMS'}`);
+            
+            // Log detailed retrieval path if available
+            if (itemData.path && itemData.path.length > 0) {
+              addLog(`RETRIEVAL PATH CALCULATED:`);
+              itemData.path.forEach((step, index) => {
+                addLog(`  ${index + 1}. ${step}`);
+              });
+            }
+            
+            // Log obstructing items
+            if (itemData.disturbed_items && itemData.disturbed_items.length > 0) {
+              addLog(`ITEMS TO BE TEMPORARILY MOVED: ${itemData.disturbed_items.join(', ')}`);
+            }
+          }
+          
           setSuccess(`Item ${itemId} has been located in container ${itemData.location.container}.`);
         } else {
           addLog(`SUCCESS: CARGO FOUND BUT NOT CURRENTLY PLACED IN STORAGE`);
@@ -154,6 +180,11 @@ const RetrievePage = () => {
     setShowAnimationComplete(true);
 
     if (locatedItem && locatedItem.location) {
+      // Store item info for potential placement
+      setRetrievedItemId(locatedItem.item_id);
+      setRetrievedItemName(locatedItem.item?.name || locatedItem.item_id);
+      
+      // Update the located item state to show it's not in a container
       setLocatedItem(prev => prev ? ({
         ...prev,
         location: undefined,
@@ -168,7 +199,22 @@ const RetrievePage = () => {
 
     setTimeout(() => {
       setStartRetrieveAnimation(false);
+      // Show the placement form after a short delay
+      setTimeout(() => {
+        setShowPlaceForm(true);
+        addLog(`READY FOR MANUAL PLACEMENT. AWAITING CONTAINER SELECTION.`);
+      }, 500);
     }, 100); 
+  };
+
+  const handlePlaceSuccess = (message: string) => {
+    setSuccess(message);
+    setShowPlaceForm(false);
+  };
+
+  const handleCancelPlacement = () => {
+    addLog(`MANUAL PLACEMENT CANCELED. ITEM REMAINS UNPLACED.`);
+    setShowPlaceForm(false);
   };
 
   const resetAll = () => {
@@ -179,6 +225,9 @@ const RetrievePage = () => {
     setRetrievalLogs([]);
     setStartRetrieveAnimation(false);
     setShowAnimationComplete(false);
+    setShowPlaceForm(false);
+    setRetrievedItemId('');
+    setRetrievedItemName('');
   };
 
   // Calculate the logs for the current page
@@ -349,14 +398,16 @@ const RetrievePage = () => {
               </div>
 
               {(startRetrieveAnimation || showAnimationComplete) && locatedItem.location && (
-                <div className="mb-4 p-4 bg-black/30 rounded border border-green-900/50 relative">
-                   <div className="absolute top-2 left-2 text-xs text-green-600 font-mono">[ DOCKING MECHANISM ACTIVE ]</div>
+                <div className="mb-4 h-[400px] bg-black/30 rounded border border-green-900/50 relative overflow-hidden">
+                   <div className="absolute top-2 left-2 text-xs text-green-600 font-mono z-10">[ DOCKING MECHANISM ACTIVE ]</div>
                    <RetrievalAnimation
                     startAnimation={startRetrieveAnimation}
                     onAnimationComplete={handleAnimationComplete}
+                    disturbed_items={locatedItem.disturbed_items}
+                    steps={locatedItem.steps}
                   />
                   {showAnimationComplete && (
-                     <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+                     <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20">
                        <CheckCircle className="h-16 w-16 text-green-500 opacity-80" />
                      </div>
                    )}
@@ -379,6 +430,12 @@ const RetrievePage = () => {
                     <>
                       <p><span className="text-gray-500">LOCATION:</span> CONTAINER <span className="text-yellow-400">{locatedItem.location.container}</span></p>
                       <p><span className="text-gray-500">COORDS:</span> X:{locatedItem.location.position.x.toFixed(1)} Y:{locatedItem.location.position.y.toFixed(1)} Z:{locatedItem.location.position.z.toFixed(1)}</p>
+                      <p><span className="text-gray-500">VISIBILITY:</span> <span className={locatedItem.steps === 0 ? "text-green-400" : "text-yellow-400"}>
+                        {locatedItem.steps === 0 ? "DIRECTLY ACCESSIBLE" : "OBSTRUCTED"}
+                      </span></p>
+                      <p><span className="text-gray-500">STEPS NEEDED:</span> <span className={locatedItem.steps === 0 ? "text-green-400" : "text-yellow-400"}>
+                        {locatedItem.steps} {locatedItem.steps === 1 ? "ITEM" : "ITEMS"} TO MOVE
+                      </span></p>
                       {locatedItem.disturbed_items.length > 0 && (
                         <p><span className="text-gray-500">OBSTRUCTIONS:</span> {locatedItem.disturbed_items.join(', ')}</p>
                       )}
@@ -422,6 +479,15 @@ const RetrievePage = () => {
                 </div>
               )}
 
+              {showPlaceForm && retrievedItemId && (
+                <PlaceItemForm
+                  itemId={retrievedItemId}
+                  itemName={retrievedItemName}
+                  onPlaceSuccess={handlePlaceSuccess}
+                  onAddLog={addLog}
+                  onCancel={handleCancelPlacement}
+                />
+              )}
             </div>
           )}
         </div>
