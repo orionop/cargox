@@ -749,4 +749,57 @@ export async function executeWastePlacementPlan(plan) {
     console.error('Error executing waste placement plan:', error);
     throw error;
   }
+}
+
+// --- New Undocking API Functions --- 
+
+/**
+ * Generate an undocking plan based on max weight.
+ * @param {number} maxWeight - The maximum weight limit.
+ * @returns {Promise<Object>} - Undocking plan details.
+ */
+export async function generateUndockingPlan(maxWeight) {
+  if (maxWeight === null || maxWeight === undefined || maxWeight <= 0) {
+    return { success: false, message: "Invalid maximum weight provided.", items_in_plan: [], total_weight: 0 };
+  }
+  try {
+    const timestamp = new Date().getTime(); // Prevent caching
+    const response = await fetch(`${API_BASE_URL}/api/undocking/generate-plan?max_weight=${maxWeight}&t=${timestamp}`, {
+      method: 'GET',
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || `HTTP error ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error generating undocking plan:', error);
+    return { success: false, message: `Error: ${error.message}`, items_in_plan: [], total_weight: 0 };
+  }
+}
+
+/**
+ * Triggers the download of the undocking manifest CSV.
+ * @param {number} maxWeight - The maximum weight limit (must match the generated plan).
+ */
+export async function downloadUndockingManifest(maxWeight) {
+  if (maxWeight === null || maxWeight === undefined || maxWeight <= 0) {
+    console.error("Invalid maximum weight provided for manifest download.");
+    // Optionally show a user-friendly error, e.g., using toast
+    alert("Please enter a valid maximum weight before downloading the manifest.");
+    return;
+  }
+  try {
+    const timestamp = new Date().getTime();
+    const url = `${API_BASE_URL}/api/undocking/export-manifest?max_weight=${maxWeight}&t=${timestamp}`;
+    
+    // Use window.open for simple download triggering, works across most browsers
+    // for GET requests resulting in file downloads.
+    window.open(url, '_blank');
+    
+  } catch (error) {
+    console.error('Error downloading undocking manifest:', error);
+    alert(`Failed to download manifest: ${error.message}`); // Simple feedback
+  }
 } 

@@ -1212,4 +1212,66 @@ class PlacementService:
             "unplaced_count": unplaced_count,
             "waste_containers": [c.id for c in waste_containers],
             "placement_plan": placement_plan
-        } 
+        }
+
+    def generate_undocking_plan(self, max_weight: float) -> Dict[str, Any]:
+        """
+        Generate a plan for items to be undocked from waste containers,
+        respecting a maximum weight limit.
+        
+        Args:
+            max_weight: The maximum total weight allowed for undocking.
+            
+        Returns:
+            Dictionary containing the plan (list of items) and total weight.
+        """
+        try:
+            # Find containers in the designated waste zone ('Waste')
+            waste_containers = self.db.query(Container).filter(Container.zone == 'Waste').all()
+            if not waste_containers:
+                return {"success": True, "message": "No containers found in waste zone 'Waste'", "items_in_plan": [], "total_weight": 0.0}
+            
+            waste_container_ids = [c.id for c in waste_containers]
+            
+            # Find all items currently located in these waste containers
+            items_in_waste = self.db.query(Item).filter(
+                Item.container_id.in_(waste_container_ids),
+                Item.is_placed == True
+            ).order_by(Item.priority.desc(), Item.weight.desc()).all() # Prioritize heavier, higher-priority items first if needed
+            
+            if not items_in_waste:
+                return {"success": True, "message": "No items found in waste containers", "items_in_plan": [], "total_weight": 0.0}
+                
+            # Select items for the plan based on max_weight
+            undocking_plan_items = []
+            current_weight = 0.0
+            
+            for item in items_in_waste:
+                if current_weight + item.weight <= max_weight:
+                    undocking_plan_items.append({
+                        "item_id": item.id,
+                        "item_name": item.name,
+                        "weight": item.weight,
+                        "source_container_id": item.container_id
+                    })
+                    current_weight += item.weight
+                # else: # Optional: break early if you want exactly <= max_weight
+                #     break 
+                    
+            return {
+                "success": True,
+                "message": f"Generated undocking plan with {len(undocking_plan_items)} items.",
+                "items_in_plan": undocking_plan_items,
+                "total_weight": current_weight,
+                "max_weight_limit": max_weight
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating undocking plan: {str(e)}")
+            # Return an error structure consistent with other responses
+            return {
+                "success": False,
+                "message": f"Error generating undocking plan: {str(e)}",
+                "items_in_plan": [],
+                "total_weight": 0.0
+            } 
