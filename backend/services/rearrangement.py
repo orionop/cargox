@@ -190,33 +190,129 @@ class RearrangementService:
         containers = self.db.query(Container).all()
         container_utilization = {c.id: self.calculate_container_utilization(c.id) for c in containers}
         
+        # Create container capacity map to check for capacity constraints
+        container_capacity_map = {}
+        for container in containers:
+            # Count items currently in the container
+            items_count = self.db.query(Item).filter(
+                Item.container_id == container.id,
+                Item.is_placed == True
+            ).count()
+            
+            # Calculate available capacity
+            available_capacity = max(0, container.capacity - items_count)
+            
+            container_capacity_map[container.id] = {
+                "capacity": container.capacity,
+                "items_count": items_count,
+                "available_capacity": available_capacity,
+                "is_full": items_count >= container.capacity
+            }
+        
         # Get disorganized containers for the response
         disorganized_containers = self.get_disorganized_containers(excluded_types=["waste"])
         
-        # Identify underutilized and overutilized containers
-        underutilized = [c for c in containers if container_utilization[c.id] < 50]
-        overutilized = [c for c in containers if container_utilization[c.id] > 85]
-        
-        if not underutilized or not overutilized:
+        # If no containers at all, return early
+        if not containers or len(containers) < 2:
             return RearrangementPlan(
                 success=True,
-                message="No rearrangement needed - container utilization is balanced",
+                message="Not enough containers to generate a rearrangement plan",
                 total_steps=0,
                 space_optimization=0.0,
                 disorganized_containers=disorganized_containers[:10]  # Include first 10 containers
             )
         
-        # Find low priority items that can be moved from overutilized containers
-        movable_items = []
-        for container in overutilized:
-            items = self.db.query(Item).filter(
-                Item.container_id == container.id,
-                Item.is_placed == True,
-                Item.priority <= priority_threshold
-            ).all()
+        # More flexible approach to identify containers for rebalancing
+        # Using disorganized containers as primary source of items to move
+        source_containers = []
+        
+        # First try finding very overutilized containers (> 85%)
+        overutilized = [c for c in containers if container_utilization[c.id] > 85]
+        if overutilized:
+            source_containers.extend(overutilized)
+        
+        # Then add containers with inefficiency score (from disorganized_containers)
+        if disorganized_containers:
+            # Get container IDs from disorganized_containers
+            disorganized_ids = [c["id"] for c in disorganized_containers if c.get("inefficiency_score", 0) > 30]
             
-            for item in items:
-                movable_items.append((item, container))
+            # Find matching Container objects
+            for container in containers:
+                if container.id in disorganized_ids and container not in source_containers:
+                    source_containers.append(container)
+        
+        # If we still don't have source containers, try containers with non-optimal utilization (>60%)
+        if not source_containers:
+            source_containers = [c for c in containers if container_utilization[c.id] > 60]
+        
+        # Find potential target containers that have space
+        potential_targets = []
+        
+        # Filter out containers that are already at capacity
+        available_containers = [c for c in containers if not container_capacity_map[c.id]["is_full"]]
+        
+        # First try very underutilized containers (<50%)
+        underutilized = [c for c in available_containers if container_utilization[c.id] < 50]
+        if underutilized:
+            potential_targets.extend(underutilized)
+        
+        # If no underutilized containers, try containers with moderate utilization
+        if not potential_targets:
+            potential_targets = [c for c in available_containers if container_utilization[c.id] < 70]
+        
+        # If we still don't have targets, use any container not in source_containers that has available capacity
+        if not potential_targets:
+            potential_targets = [c for c in available_containers if c not in source_containers]
+        
+        # Final check - if we have no source or target containers, return early
+        if not source_containers or not potential_targets:
+            return RearrangementPlan(
+                success=True,
+                message="No suitable containers found for rearrangement",
+                total_steps=0,
+                space_optimization=0.0,
+                disorganized_containers=disorganized_containers[:10]
+            )
+        
+        # Find movable items from source containers with more flexible priority threshold
+        # Start with provided threshold, but raise it if needed
+        current_priority_threshold = priority_threshold
+        movable_items = []
+        
+        # Try to find items up to 3 times with increasing priority thresholds
+        for attempt in range(3):
+            for container in source_containers:
+                items = self.db.query(Item).filter(
+                    Item.container_id == container.id,
+                    Item.is_placed == True,
+                    Item.priority <= current_priority_threshold
+                ).all()
+                
+                for item in items:
+                    # Only add items not already in movable_items
+                    if not any(existing_item[0].id == item.id for existing_item in movable_items):
+                        movable_items.append((item, container))
+            
+            # If we found enough movable items, break
+            if len(movable_items) >= max_movements:
+                break
+            
+            # Otherwise increase the priority threshold for the next attempt
+            current_priority_threshold += 20
+            
+            # Cap at 80 to avoid moving truly high-priority items
+            if current_priority_threshold > 80:
+                break
+        
+        # If we still don't have movable items, return early
+        if not movable_items:
+            return RearrangementPlan(
+                success=True,
+                message="No suitable items found for rearrangement",
+                total_steps=0,
+                space_optimization=0.0,
+                disorganized_containers=disorganized_containers[:10]
+            )
         
         # Sort items by priority (lowest first)
         movable_items.sort(key=lambda x: x[0].priority)
@@ -228,24 +324,75 @@ class RearrangementService:
         movements = []
         moved_item_ids = []
         untouched_high_priority_items = [
-            item.id for item in self.db.query(Item).filter(Item.priority > priority_threshold).all()
+            item.id for item in self.db.query(Item).filter(Item.priority > current_priority_threshold).all()
         ]
+        
+        # Track virtual container usage to simulate moves before they happen
+        virtual_container_usage = {container_id: info["items_count"] for container_id, info in container_capacity_map.items()}
         
         for i, (item, from_container) in enumerate(movable_items):
             if i >= max_movements:
                 break
+            
+            # Find optimal container for this item preferring potential_targets
+            best_container = None
+            best_fit_score = 0
+            
+            # First try to find a target among the potential_targets
+            for target in potential_targets:
+                # Skip the same container
+                if target.id == from_container.id:
+                    continue
                 
-            # Find optimal container for this item
-            to_container, fit_score = self.find_optimal_container(item)
-            if not to_container:
+                # Skip containers that would be at capacity after this move
+                # Check both actual capacity limits and current virtual usage 
+                if virtual_container_usage[target.id] >= target.capacity:
+                    continue
+                
+                # Check if item fits in target
+                container_items = self.db.query(Item).filter(
+                    Item.container_id == target.id, 
+                    Item.is_placed == True
+                ).all()
+                
+                used_volume = sum(i.width * i.height * i.depth for i in container_items)
+                container_volume = target.width * target.height * target.depth
+                remaining_volume = container_volume - used_volume
+                item_volume = item.width * item.height * item.depth
+                
+                if item_volume <= remaining_volume:
+                    # Calculate fit score
+                    fit_score = 100 - ((container_volume - item_volume) / container_volume * 100)
+                    
+                    if best_container is None or fit_score > best_fit_score:
+                        best_container = target
+                        best_fit_score = fit_score
+            
+            # Skip if no suitable container found among potential_targets
+            if best_container is None:
+                # Use find_optimal_container as fallback but only if container isn't at capacity
+                try:
+                    candidate_container, candidate_fit_score = self.find_optimal_container(item)
+                    # Only use the container if it has capacity
+                    if (candidate_container and 
+                        candidate_container.id != from_container.id and
+                        virtual_container_usage[candidate_container.id] < candidate_container.capacity):
+                        best_container = candidate_container
+                        best_fit_score = candidate_fit_score
+                except Exception as e:
+                    # Log error but continue with the next item
+                    print(f"Error finding optimal container for {item.id}: {str(e)}")
+            
+            # Skip if no suitable container found
+            if best_container is None:
                 continue
-                
+            
             # Skip if moving to the same container
-            if to_container.id == from_container.id:
+            if best_container.id == from_container.id:
                 continue
-                
+            
             # Calculate movement time
-            movement_time = self.estimate_movement_time(item, from_container, to_container)
+            movement_time = self.estimate_movement_time(item, from_container, best_container)
             
             # Create movement step
             movement = RearrangementMovement(
@@ -253,11 +400,17 @@ class RearrangementService:
                 item_id=item.id,
                 item_name=item.name,
                 from_container_id=from_container.id,
-                to_container_id=to_container.id,
+                to_container_id=best_container.id,
+                from_zone=from_container.zone,
+                to_zone=best_container.zone,
                 estimated_time=movement_time,
                 priority=item.priority,
-                description=f"Move {item.name} from {from_container.id} ({from_container.zone or 'unzoned'}) to {to_container.id} ({to_container.zone or 'unzoned'})"
+                description=f"Move {item.name} from {from_container.id} ({from_container.zone or 'unzoned'}) to {best_container.id} ({best_container.zone or 'unzoned'})"
             )
+            
+            # Update virtual container usage
+            virtual_container_usage[from_container.id] -= 1
+            virtual_container_usage[best_container.id] += 1
             
             movements.append(movement)
             moved_item_ids.append(item.id)
@@ -265,18 +418,18 @@ class RearrangementService:
             # Update utilization calculation after this move
             item_volume = item.width * item.height * item.depth
             from_volume = from_container.width * from_container.height * from_container.depth
-            to_volume = to_container.width * to_container.height * to_container.depth
+            to_volume = best_container.width * best_container.height * best_container.depth
             
             # Recalculate utilization for the source and destination containers
             utilization_from = container_utilization[from_container.id]
-            utilization_to = container_utilization[to_container.id]
+            utilization_to = container_utilization[best_container.id]
             
             # Adjust utilization based on item volume
             adjusted_from = utilization_from - ((item_volume / from_volume) * 100)
             adjusted_to = utilization_to + ((item_volume / to_volume) * 100)
             
             container_utilization[from_container.id] = max(0, adjusted_from)
-            container_utilization[to_container.id] = min(100, adjusted_to)
+            container_utilization[best_container.id] = min(100, adjusted_to)
         
         # Calculate final space utilization after all movements
         final_utilization = sum(container_utilization.values()) / len(container_utilization) if container_utilization else 0

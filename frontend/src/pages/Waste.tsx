@@ -13,7 +13,7 @@ const Waste = () => {
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
   const [returnPlan, setReturnPlan] = useState<WasteReturnPlan | null>(null);
   const [executionResult, setExecutionResult] = useState<WastePlacementExecutionResult | null>(null);
-  const [targetZone, setTargetZone] = useState<string>('Storage_Bay');
+  const [targetZone, setTargetZone] = useState<string>('Waste');
   const [availableZones, setAvailableZones] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +75,8 @@ const Waste = () => {
           'Engineering_Bay', 
           'Crew_Quarters',
           'Medical_Bay',
-          'Lab'
+          'Lab',
+          'Waste'
         ];
         console.log("Setting default zones:", defaultZones);
         setAvailableZones(defaultZones);
@@ -109,7 +110,8 @@ const Waste = () => {
           'Engineering_Bay', 
           'Crew_Quarters',
           'Medical_Bay',
-          'Lab'
+          'Lab',
+          'Waste'
         ];
         console.log("No zones found in containers, setting default zones:", defaultZones);
         setAvailableZones(defaultZones);
@@ -125,7 +127,8 @@ const Waste = () => {
         'Engineering_Bay', 
         'Crew_Quarters',
         'Medical_Bay',
-        'Lab'
+        'Lab',
+        'Waste'
       ];
       console.log("Error fetching zones, setting default zones:", defaultZones);
       setAvailableZones(defaultZones);
@@ -137,7 +140,9 @@ const Waste = () => {
     setError(null);
     setExecutionResult(null);
     try {
-      const plan = await generateWasteReturnPlan(targetZone);
+      // Use 'Waste' zone if targetZone is empty
+      const zoneToUse = targetZone.trim() ? targetZone : 'Waste';
+      const plan = await generateWasteReturnPlan(zoneToUse);
       setReturnPlan(plan);
     } catch (err) {
       setError('Failed to generate waste return plan');

@@ -1,0 +1,7 @@
+zone,container_id,width_cm,depth_cm,height_cm
+Storage_Bay,SB05,200.0,170.0,400.0
+Storage_Bay,SB06,200.0,85.0,200.0
+Crew_Quarters,CQ05,100.0,85.0,100.0
+Lab,L05,200.0,170.0,200.0
+Engine_Bay,NA04,100.0,85.0,100.0
+Greenhouse,G05,100.0,85.0,100.0 
