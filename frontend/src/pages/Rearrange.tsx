@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getRearrangementSuggestions, executeRearrangementPlan } from '../frontend-api';
 import { Loader, ArrowRight, RefreshCw, AlertTriangle, CheckCircle2, Info, ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface RearrangementItem {
   item_id: string;
@@ -219,20 +220,40 @@ const RearrangePage = () => {
         addLog(`${alternativeMoves.length} ITEMS MOVED TO ALTERNATIVE CONTAINERS DUE TO SPACE CONSTRAINTS`);
       }
       
-      // Report failed moves
+      // Report failed moves and generate alert message if failures occurred
       const failedMoves = results.results?.filter(r => !r.success) || [];
+      let failureAlertMessage = "";
       if (failedMoves.length > 0) {
         addLog(`${failedMoves.length} MOVES FAILED`);
+        failureAlertMessage = `Rearrangement Execution Failed:\n--------------------------------------\n`;
         failedMoves.forEach(move => {
-          addLog(`FAILED: Item ${move.item_id} - ${move.message}`);
+          const failureReason = move.message || 'Unknown reason';
+          addLog(`FAILED: Item ${move.item_id} - ${failureReason}`);
+          failureAlertMessage += `\nItem ${move.item_id}: ${failureReason}`;
         });
       }
       
-      // Show detailed notification with results
+      // Show detailed notification banner with overall results
       setExecutionResult({
         success: results.success,
         message: `Plan executed: ${successfulMoves.length}/${planToExecute.length} items moved successfully. ${alternativeMoves.length > 0 ? `(${alternativeMoves.length} to alternative containers)` : ''}`
       });
+      
+      // --- SHOW POP-UP ALERT ON FAILURE --- 
+      if (!results.success && failureAlertMessage) {
+        toast.error(
+          () => (
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {failureAlertMessage}
+            </div>
+          ),
+          {
+            duration: 3000,
+            id: 'rearrange-failure'
+          }
+        );
+      }
+      // --- END POP-UP ALERT --- 
       
       // Explicitly clear the rearrangement plan to avoid showing outdated moves
       setRearrangementPlan([]);
@@ -575,6 +596,13 @@ const RearrangePage = () => {
                           
                           // Find the execution result for this specific move, if execution has happened
                           const moveResult = executionResult?.results?.find(r => r.item_id === item.item_id);
+                          
+                          // --- DEBUGGING LOG --- 
+                          if (moveResult) {
+                            console.log(`Rendering move for item ${item.item_id}:`, item);
+                            console.log(`Execution result for ${item.item_id}:`, moveResult);
+                          }
+                          // --- END DEBUGGING LOG ---
                           
                           return (
                             <tr 
