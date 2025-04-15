@@ -2,6 +2,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+import csv
 
 # Load environment variables early
 from dotenv import load_dotenv
@@ -2735,6 +2736,107 @@ async def apply_rearrangement_plan(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error applying rearrangement plan: {str(e)}"
+        )
+
+# --- New Undocking Endpoints --- 
+
+class UndockingPlanResponse(BaseModel):
+    success: bool
+    message: str
+    items_in_plan: List[Dict[str, Any]]
+    total_weight: float
+    max_weight_limit: Optional[float] = None
+
+@app.get("/api/undocking/generate-plan", response_model=UndockingPlanResponse)
+async def api_generate_undocking_plan(
+    max_weight: float = Query(..., description="Maximum total weight allowed for undocking."),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a plan of items to be moved from the waste zone ('W') 
+    for undocking, respecting a maximum weight limit.
+    """
+    try:
+        placement_service = PlacementService(db)
+        plan_result = placement_service.generate_undocking_plan(max_weight=max_weight)
+        
+        # Log the action
+        log_action(db, "undocking_plan_generated", None, None, "system", 
+                   f"Generated undocking plan for max weight {max_weight}. Items: {len(plan_result.get('items_in_plan', []))}, Weight: {plan_result.get('total_weight', 0):.2f}kg")
+                   
+        # Return Pydantic model compatible data
+        return UndockingPlanResponse(**plan_result)
+        
+    except Exception as e:
+        logger.error(f"Error generating undocking plan: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating undocking plan: {str(e)}"
+        )
+
+@app.get("/api/undocking/export-manifest")
+async def api_export_undocking_manifest(
+    max_weight: float = Query(..., description="Maximum total weight allowed for undocking (must match generated plan)."),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate and download a CSV manifest for items planned for undocking,
+    based on the specified maximum weight limit.
+    """
+    try:
+        placement_service = PlacementService(db)
+        plan_result = placement_service.generate_undocking_plan(max_weight=max_weight)
+        
+        if not plan_result.get("success", False):
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=plan_result.get("message", "Failed to generate undocking plan for manifest.")
+            )
+
+        items_to_export = plan_result.get("items_in_plan", [])
+        total_weight = plan_result.get("total_weight", 0.0)
+        
+        # Create CSV content
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Header
+        writer.writerow(["Item ID", "Item Name", "Weight (kg)", "Source Container ID"])
+        # Data
+        for item in items_to_export:
+            writer.writerow([
+                item["item_id"],
+                item["item_name"],
+                f"{item['weight']:.2f}", # Format weight
+                item["source_container_id"]
+            ])
+        # Footer with total weight
+        writer.writerow([]) # Blank line
+        writer.writerow(["Total Items:", len(items_to_export)])
+        writer.writerow(["Total Weight (kg):", f"{total_weight:.2f}"])
+        writer.writerow(["Max Weight Limit (kg):", f"{max_weight:.2f}"])
+        
+        # Get CSV string
+        csv_content = output.getvalue()
+        output.close()
+        
+        # Log the export
+        log_action(db, "undocking_manifest_exported", None, None, "system", 
+                   f"Exported undocking manifest for max weight {max_weight}. Items: {len(items_to_export)}, Weight: {total_weight:.2f}kg")
+        
+        # Create streaming response for CSV download
+        response = StreamingResponse(io.StringIO(csv_content), media_type="text/csv")
+        response.headers["Content-Disposition"] = f"attachment; filename=undocking_manifest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return response
+
+    except HTTPException: # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting undocking manifest: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error exporting undocking manifest: {str(e)}"
         )
 
 # Run the application
